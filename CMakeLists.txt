@@ -171,6 +171,13 @@ if(CMAKE_CUDA_COMPILER)
         target_compile_definitions(bench PRIVATE CNN_HAS_CUDNN=1)
     endif()
 
+    # Full 10k MNIST parity harness. Not an add_test target — it needs
+    # ~32 MB of bulk fixture files produced by `tools/dump_fixtures.py
+    # --bulk --count 10000`, which are gitignored. Run manually to
+    # capture the overall parity/accuracy numbers cited in the report.
+    add_executable(test_forward_mnist10k tests/test_forward_mnist10k.cu)
+    target_link_libraries(test_forward_mnist10k PRIVATE cnn_kernels cnn_host)
+
     # End-to-end: compose all five naive kernels through device-pointer
     # launchers and validate the full pipeline vs PyTorch fixtures.
     # Passing this is the minimum-tier correctness milestone.

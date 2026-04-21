@@ -59,3 +59,7 @@ venv/
 # Raw benchmark capture — reproducible from `build/bench --csv`, not a
 # submission artifact. Derived figures under report/figs/ are tracked.
 .bench-raw/
+
+# 10k-MNIST bulk parity fixtures (~32 MB). Reproducible from
+# `python3 tools/dump_fixtures.py --bulk --count 10000`.
+fixtures/mnist10k_*.bin

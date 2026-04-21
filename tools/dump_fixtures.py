@@ -92,6 +92,14 @@ def main() -> int:
         default=5,
         help="How many test images to dump",
     )
+    parser.add_argument(
+        "--bulk",
+        action="store_true",
+        help="Also dump all --count images as three concatenated tensors "
+             "(mnist10k_inputs.bin, mnist10k_outputs.bin, mnist10k_labels.bin) "
+             "for the full-test-set parity harness. Per-image .bin files are "
+             "still written up to --count.",
+    )
     args = parser.parse_args()
 
     if not args.checkpoint.exists():
@@ -115,9 +123,14 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
+    # In --bulk mode the per-image loop only writes a handful of
+    # sample fixtures (the ones the small-fixture unit tests already
+    # reference). The 10k parity harness reads from the bulk tensor
+    # below, not from thousands of individual .bin files.
+    per_image_count = min(args.count, 5) if args.bulk else args.count
     manifest_lines = ["# index  label  predicted  max_logprob"]
     with torch.no_grad():
-        for i in range(args.count):
+        for i in range(per_image_count):
             image, label = test_set[i]        # image: (1, 28, 28) float32
             x = image.unsqueeze(0)             # → (1, 1, 28, 28)
             logp = model(x)                    # → (1, 10), log-softmax
@@ -141,6 +154,42 @@ def main() -> int:
     manifest_path = args.out_dir / "manifest.txt"
     manifest_path.write_text("\n".join(manifest_lines) + "\n")
     print(f"wrote {manifest_path}")
+
+    if args.bulk:
+        # Concatenated tensors for the full-test-set parity harness.
+        # Same normalization and eval-mode forward as the per-image dump,
+        # but batched through the model in chunks for speed. Written as
+        # contiguous raw float32 (and int32 for labels) so the C++ loader
+        # is a flat fread.
+        import numpy as np  # local import: only needed for bulk path
+        chunk = 256
+        n = min(args.count, len(test_set))
+        all_inputs = np.empty((n, 1, 28, 28), dtype=np.float32)
+        all_outputs = np.empty((n, 10), dtype=np.float32)
+        all_labels = np.empty((n,), dtype=np.int32)
+        with torch.no_grad():
+            for start in range(0, n, chunk):
+                end = min(start + chunk, n)
+                xs = torch.stack([test_set[j][0] for j in range(start, end)], dim=0)
+                logp = model(xs)
+                all_inputs[start:end] = xs.numpy()
+                all_outputs[start:end] = logp.numpy()
+                for j in range(start, end):
+                    all_labels[j] = test_set[j][1]
+
+        predicted = all_outputs.argmax(axis=1)
+        accuracy = float((predicted == all_labels).mean())
+        bulk_in = args.out_dir / "mnist10k_inputs.bin"
+        bulk_out = args.out_dir / "mnist10k_outputs.bin"
+        bulk_lbl = args.out_dir / "mnist10k_labels.bin"
+        bulk_in.write_bytes(all_inputs.tobytes())
+        bulk_out.write_bytes(all_outputs.tobytes())
+        bulk_lbl.write_bytes(all_labels.tobytes())
+        print(f"wrote {bulk_in} ({bulk_in.stat().st_size}B), "
+              f"{bulk_out} ({bulk_out.stat().st_size}B), "
+              f"{bulk_lbl} ({bulk_lbl.stat().st_size}B)")
+        print(f"PyTorch accuracy on first {n} MNIST test images: {accuracy*100:.2f}%")
+
     return 0
 
 

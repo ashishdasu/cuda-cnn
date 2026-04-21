@@ -1,7 +1,5 @@
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
-% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
-%Template version as of 6/27/2024
 
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
@@ -9,285 +7,640 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{url}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
 
-\title{Conference Paper Title*\\
-{\footnotesize \textsuperscript{*}Note: Sub-titles are not captured for https://ieeexplore.ieee.org  and
-should not be used}
-\thanks{Identify applicable funding agency here. If none, delete this.}
-}
+\title{A From-Scratch CUDA Forward-Pass Inference Engine for a LeNet-Style MNIST CNN}
 
-\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
-\textit{name of organization (of Aff.)}\\
-City, Country \\
-email address or ORCID}
-\and
-\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
-\textit{name of organization (of Aff.)}\\
-City, Country \\
-email address or ORCID}
-\and
-\IEEEauthorblockN{3\textsuperscript{rd} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
-\textit{name of organization (of Aff.)}\\
-City, Country \\
-email address or ORCID}
-\and
-\IEEEauthorblockN{4\textsuperscript{th} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
-\textit{name of organization (of Aff.)}\\
-City, Country \\
-email address or ORCID}
-\and
-\IEEEauthorblockN{5\textsuperscript{th} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
-\textit{name of organization (of Aff.)}\\
-City, Country \\
-email address or ORCID}
-\and
-\IEEEauthorblockN{6\textsuperscript{th} Given Name Surname}
-\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
-\textit{name of organization (of Aff.)}\\
-City, Country \\
-email address or ORCID}
-}
+\author{\IEEEauthorblockN{Ashish Dasu}
+\IEEEauthorblockA{\textit{Khoury College of Computer Sciences} \\
+\textit{Northeastern University}\\
+Boston, MA, USA \\
+dasu.a@northeastern.edu}}
 
 \maketitle
 
 \begin{abstract}
-This document is a model and instructions for \LaTeX.
-This and the IEEEtran.cls file define the components of your paper [title, text, heads, etc.]. *CRITICAL: Do Not Use Symbols, Special Characters, Footnotes, 
-or Math in Paper Title or Abstract.
+We build a forward-pass inference engine for a LeNet-style MNIST
+convolutional network in C++ and CUDA, with no deep-learning framework
+at runtime. Five kernels --- 2D convolution, max pooling, ReLU, linear,
+and log-softmax --- are written first as naive reference
+implementations, then convolution and the linear layer are re-written
+as tiled shared-memory variants. Weights are exported once from a
+trained PyTorch checkpoint as raw float32 and copied to the GPU. A
+three-layer correctness harness validates each kernel against a CPU
+reference and the end-to-end pipeline against PyTorch log-softmax on
+five MNIST fixtures. On an NVIDIA RTX~4090, the full GPU forward pass agrees with PyTorch
+to a maximum absolute error of $1.91\times10^{-5}$ over the entire
+$10\,000$-image MNIST test set, comfortably inside the project's
+$1\times10^{-4}$ tolerance, with argmax matching on every image and
+overall accuracy ($97.93\%$) identical to PyTorch eval mode.
+Per-kernel benchmarks show that tiled GEMM delivers up to
+$6.43\times$ speedup over naive at a $1024\times1024\times1024$
+problem size but tiled convolution slightly regresses at LeNet scale,
+a result we attribute to the small working set fitting in L1 and
+making shared-memory tiling's synchronization overhead dominant.
+A stretch-tier cuDNN baseline is included for reference and is itself
+slower than the naive direct kernel at LeNet shapes (descriptor and
+algorithm dispatch overhead), overtaking it only on a larger
+$32{\to}64$, $64\times64$ synthetic workload.
 \end{abstract}
 
 \begin{IEEEkeywords}
-component, formatting, style, styling, insert.
+CUDA, GPU computing, convolutional neural networks, MNIST, inference,
+tiled matrix multiplication, shared memory.
 \end{IEEEkeywords}
 
 \section{Introduction}
-This document is a model and instructions for \LaTeX.
-Please observe the conference page limits. For more information about how to become an IEEE Conference author or how to write your paper, please visit   IEEE Conference Author Center website: https://conferences.ieeeauthorcenter.ieee.org/.
+Deep-learning frameworks hide the GPU primitives behind autograd,
+graph capture, and vendor libraries. This project builds the
+inference path of a small convolutional network from the CUDA kernels
+up, with no framework code and no vendor-provided neural-network
+primitives at runtime. The target network is a LeNet-style MNIST
+classifier from the author's prior project work (two conv layers, two
+max pool layers, two fully connected layers, ReLU activations, and a
+log-softmax output). Correctness is specified as matching a PyTorch
+forward pass on the MNIST test inputs to within a documented
+absolute-error tolerance of $1\times10^{-4}$ per log-softmax element.
 
-\subsection{Maintaining the Integrity of the Specifications}
+All model weights are exported once from the trained PyTorch
+checkpoint as header-less raw float32 binaries and copied to the GPU
+via \texttt{cudaMemcpy}; PyTorch is never linked at runtime. The
+contributions, in the order they were developed, are: (1)~a set of
+naive CUDA kernels for conv2d, max\_pool2d, ReLU, linear, and
+log-softmax; (2)~tiled shared-memory variants for the convolution and
+linear layers; (3)~a three-layer correctness harness (CPU reference,
+per-kernel GPU diff, end-to-end forward pass) that validates every
+kernel against a numerical oracle before it is integrated; and
+(4)~a throughput comparison of naive against tiled variants on
+LeNet-scale and synthetic-scale problems, with a cuDNN baseline as
+a stretch-tier reference point.
 
-The IEEEtran class file is used to format your paper and style the text. All margins, 
-column widths, line spaces, and text fonts are prescribed; please do not 
-alter them. You may note peculiarities. For example, the head margin
-measures proportionately more than is customary. This measurement 
-and others are deliberate, using specifications that anticipate your paper 
-as one part of the entire proceedings, and not as an independent document. 
-Please do not revise any of the current designations.
+\section{Related Work}
+The target network follows the LeNet-5 design of LeCun
+\emph{et~al.}~\cite{lecun1998}, which introduced the convolution,
+subsampling, and fully connected layer structure used throughout this
+project and established MNIST as the canonical digit-recognition
+benchmark. While LeNet predates the GPU-accelerated training boom,
+its small parameter count (approximately $60\,000$ weights in the
+variant used here) makes it a practical fit for a
+from-scratch forward-pass implementation: the full weight set fits in
+a few tens of kilobytes and each kernel shape is small enough that
+hand-computed references can be built for unit testing.
 
-\section{Prepare Your Paper Before Styling}
-Before you begin to format your paper, first write and save the content as a 
-separate text file. Complete all content and organizational editing before 
-formatting. Please note sections \ref{AA} to \ref{FAT} below for more information on 
-proofreading, spelling and grammar.
+On the GPU-kernel side, two lines of work inform the target-tier
+optimizations. Volkov and Demmel~\cite{volkov2008} characterized GPU
+memory bandwidth and arithmetic throughput and demonstrated how
+shared-memory tiling combined with register blocking approaches
+peak machine performance for dense linear algebra; this motivates the
+tiled GEMM used for the fully connected layers. Lavin and
+Gray~\cite{lavingray2016} reduced convolution arithmetic with
+Winograd minimal-filter algorithms, showing the gap that remains
+between direct-convolution implementations (the approach taken in
+this project) and algorithm-level reformulations; this is context for
+interpreting the gap between our direct kernels and a cuDNN baseline,
+which selects Winograd or implicit-GEMM algorithms per shape. Chetlur
+\emph{et~al.}~\cite{cudnn2014} describe cuDNN itself, which is used
+in the stretch tier as a throughput reference.
 
-Keep your text and graphic files separate until after the text has been 
-formatted and styled. Do not number text heads---{\LaTeX} will do that 
-for you.
+\section{Methods}
 
-\subsection{Abbreviations and Acronyms}\label{AA}
-Define abbreviations and acronyms the first time they are used in the text, 
-even after they have been defined in the abstract. Abbreviations such as 
-IEEE, SI, MKS, CGS, ac, dc, and rms do not have to be defined. Do not use 
-abbreviations in the title or heads unless they are unavoidable.
+\subsection{Target Network and Weight Export}
+The target network is the LeNet-style model from the author's
+CS5330 Project~5: \texttt{conv1}~($1{\to}10$, $5{\times}5$, stride~1),
+max-pool~$2{\times}2$, ReLU; \texttt{conv2}~($10{\to}20$,
+$5{\times}5$, stride~1), \texttt{Dropout2d} (skipped at inference),
+max-pool~$2{\times}2$, ReLU; flatten to $320$, \texttt{fc1}~($320{\to}50$),
+ReLU, \texttt{fc2}~($50{\to}10$), log-softmax. The eight learnable
+tensors (\texttt{conv1/conv2/fc1/fc2}, each with weight and bias) are
+exported once from the trained \texttt{.pth} checkpoint by a short
+Python tool (\texttt{tools/export\_weights.py}) as header-less raw
+float32 binaries in PyTorch's native memory layout (NCHW for conv
+filters, $(\texttt{out},\,\texttt{in})$ for linear weights). At
+inference, the host loader reads these files with a plain
+\texttt{fread} and \texttt{cudaMemcpy}s the contents to the device,
+so Python and PyTorch are not runtime dependencies of the engine.
 
-\subsection{Units}
-\begin{itemize}
-\item Use either SI (MKS) or CGS as primary units. (SI units are encouraged.) English units may be used as secondary units (in parentheses). An exception would be the use of English units as identifiers in trade, such as ``3.5-inch disk drive''.
-\item Avoid combining SI and CGS units, such as current in amperes and magnetic field in oersteds. This often leads to confusion because equations do not balance dimensionally. If you must use mixed units, clearly state the units for each quantity that you use in an equation.
-\item Do not mix complete spellings and abbreviations of units: ``Wb/m\textsuperscript{2}'' or ``webers per square meter'', not ``webers/m\textsuperscript{2}''. Spell out units when they appear in text: ``. . . a few henries'', not ``. . . a few H''.
-\item Use a zero before decimal points: ``0.25'', not ``.25''. Use ``cm\textsuperscript{3}'', not ``cc''.)
-\end{itemize}
+\subsection{Correctness Harness}
+Correctness is enforced by a three-layer oracle chain that isolates
+failures to the smallest possible unit before integration. The first
+layer is a CPU reference implementation (\texttt{host/reference.cpp}),
+written in plain C++17 with no tuning and no parallelism, covering
+every operator in the network. This reference is itself validated
+against five PyTorch log-softmax fixtures captured from the trained
+model on MNIST test indices $0$--$4$; the maximum absolute
+error is on the order of $4\times10^{-6}$, which is the
+noise floor introduced by different float32 summation orders between
+PyTorch and our reference loop. The CPU reference is the single
+oracle against which every subsequent CUDA kernel is judged.
 
-\subsection{Equations}
-Number equations consecutively. To make your 
-equations more compact, you may use the solidus (~/~), the exp function, or 
-appropriate exponents. Italicize Roman symbols for quantities and variables, 
-but not Greek symbols. Use a long dash rather than a hyphen for a minus 
-sign. Punctuate equations with commas or periods when they are part of a 
-sentence, as in:
-\begin{equation}
-a+b=\gamma\label{eq}
-\end{equation}
+The second layer is a per-kernel CUDA diff: each naive kernel
+(\texttt{conv2d}, \texttt{max\_pool2d}, \texttt{ReLU},
+\texttt{linear}, \texttt{log\_softmax}) ships with a unit test that
+generates random mixed-sign inputs at several shapes --- LeNet's own
+shapes plus deliberately off-model shapes with odd dimensions --- and
+diffs the kernel's output element-wise against the CPU reference run
+on the same inputs. The tolerance is the project-wide
+$1\times10^{-4}$. The third layer is the end-to-end GPU forward pass:
+all five naive kernels are composed through device-pointer launchers
+with activations kept on-device between layers, and the full pipeline
+is run on the same five PyTorch fixtures used to validate the CPU
+reference. This exercises not just each kernel but also the
+integration glue --- tensor layouts, layer ordering, and the handling
+of the flatten between \texttt{conv2/pool/relu} and \texttt{fc1}.
 
-Be sure that the 
-symbols in your equation have been defined before or immediately following 
-the equation. Use ``\eqref{eq}'', not ``Eq.~\eqref{eq}'' or ``equation \eqref{eq}'', except at 
-the beginning of a sentence: ``Equation \eqref{eq} is . . .''
+\subsection{Toolchain and Hardware}
+All CUDA development and benchmarks run on a single RunPod instance:
+NVIDIA GeForce RTX 4090 (24~GB GDDR6X, compute capability~8.9), Ubuntu
+22.04, NVIDIA driver 550.127.05, CUDA Toolkit 12.4 (nvcc V12.4.131),
+g++ 11.4.0, CMake 3.22.1. Builds are \texttt{-O3} (Release). The
+\texttt{CMakeLists.txt} targets compute capabilities 75/80/86/89, so
+kernels remain portable to T4, A100, and 30-/40-series GPUs. The
+proposal's original target was a T4 on Google Colab; development
+moved to RTX~4090 on RunPod for a standard SSH dev loop, with the
+same CUDA toolchain and source tree.
 
-\subsection{\LaTeX-Specific Advice}
+\subsection{Naive Kernels}
+Each operator is implemented first as a direct translation of the
+mathematical definition, with one thread per output element and no
+shared-memory reuse. The priority at this stage is readability and
+correctness, not performance; every naive kernel passes its unit test
+at the float32 noise floor (see Table~\ref{tab:parity}).
 
-Please use ``soft'' (e.g., \verb|\eqref{Eq}|) cross references instead
-of ``hard'' references (e.g., \verb|(1)|). That will make it possible
-to combine sections, add equations, or change the order of figures or
-citations without having to go through the file line by line.
+\emph{Convolution} uses one thread per output pixel. The grid is
+launched as $(\lceil W_{\text{out}}/16\rceil,\lceil H_{\text{out}}/16\rceil,
+N\cdot C_{\text{out}})$ with $16\times16$ thread blocks. Each thread
+loops over $C_{\text{in}}\cdot K_h\cdot K_w$ weight/input pairs and
+accumulates the dot product in a register; the bias is added at the
+end. Tensors use PyTorch-native NCHW layout throughout. Stride is~1
+and padding is~0, matching the Project~5 network.
 
-Please don't use the \verb|{eqnarray}| equation environment. Use
-\verb|{align}| or \verb|{IEEEeqnarray}| instead. The \verb|{eqnarray}|
-environment leaves unsightly spaces around relation symbols.
+\emph{Max pooling} launches one thread per output pixel over a
+$2\times2$ non-overlapping window with stride~2. Each thread loads
+four input values, takes the max, and writes one output; no reduction
+primitive is required at this window size.
 
-Please note that the \verb|{subequations}| environment in {\LaTeX}
-will increment the main equation counter even when there are no
-equation numbers displayed. If you forget that, you might write an
-article in which the equation numbers skip from (17) to (20), causing
-the copy editors to wonder if you've discovered a new method of
-counting.
+\emph{ReLU} is a trivial elementwise kernel with a 1D grid: each
+thread reads one element, clamps it at zero, and writes it back. It
+exists as a separate kernel rather than being fused because the
+naive-first design discipline treats each operator as an independent
+testable unit.
 
-{\BibTeX} does not work by magic. It doesn't get the bibliographic
-data from thin air but from .bib files. If you use {\BibTeX} to produce a
-bibliography you must send the .bib files. 
+\emph{Linear} maps to a GEMM of shape
+$(N,\,\text{in})\times(\text{in},\,\text{out})$; the naive kernel
+launches one thread per output element of the $(N,\,\text{out})$
+matrix, with each thread computing a dot product over
+$\text{in\_features}$ weight/input pairs plus a bias.
 
-{\LaTeX} can't read your mind. If you assign the same label to a
-subsubsection and a table, you might find that Table I has been cross
-referenced as Table IV-B3. 
+\emph{Log-softmax} is the only kernel with a non-trivial numerical
+trap. A straightforward implementation of
+$\log\!\left(e^{x_i}/\sum_j e^{x_j}\right)$ overflows for logits with
+magnitude larger than~$\sim88$ because $e^{x}$ exceeds the
+float32 range. We therefore subtract the per-row maximum before
+exponentiation:
+$\mathrm{logsoftmax}(x)_i = (x_i - m) - \log\sum_j e^{x_j - m}$ where
+$m=\max_j x_j$. Each thread block handles one row. \texttt{blockDim.x}
+is set to the next power of two greater than or equal to the class
+count, which lets both the max-reduction and the sum-of-exp reduction
+use a clean shared-memory tree-reduction with sentinel padding
+($-\infty$ for max, $0$ for sum) in the out-of-range lanes. The
+in-device intrinsics \texttt{\_\_expf} and \texttt{\_\_logf} are used
+for the elementwise exponentials and final log.
 
-{\LaTeX} does not have precognitive abilities. If you put a
-\verb|\label| command before the command that updates the counter it's
-supposed to be using, the label will pick up the last counter to be
-cross referenced instead. In particular, a \verb|\label| command
-should not go before the caption of a figure or a table.
+\subsection{Tiled Kernels (Target Tier)}
+Two operators are re-implemented as shared-memory tiled variants:
+convolution and the linear layer. Both variants live in separate
+translation units from the naive kernels and are validated against
+the same CPU reference at the same $1\times10^{-4}$ tolerance before
+being promoted into the end-to-end pipeline.
 
-Do not use \verb|\nonumber| inside the \verb|{array}| environment. It
-will not stop equation numbers inside \verb|{array}| (there won't be
-any anyway) and it might stop a wanted equation number in the
-surrounding equation.
+The tiled convolution block produces one $\text{TILE\_H}\times
+\text{TILE\_W}$ output patch for one $(n,\text{oc})$ pair, with
+$\text{TILE\_H}=\text{TILE\_W}=16$. Dynamic shared memory holds a
+$(\text{TILE\_H}+K_h-1)\times(\text{TILE\_W}+K_w-1)$ input patch for
+one input channel at a time. The threads in the block cooperatively
+load that patch (with zero-padding for the halo that falls outside
+the input), then each in-bounds thread accumulates its output pixel's
+contribution over all $K_h\cdot K_w$ weight elements. A
+\texttt{\_\_syncthreads} sits between the load and the accumulation,
+and a second \texttt{\_\_syncthreads} at the end of the input-channel
+iteration guards shared memory before the next $C_{\text{in}}$ step
+overwrites it. The weight tensor is read directly from global memory;
+at LeNet scale the full weight tensor is small enough (5000 floats
+for \texttt{conv2}) to reside in L1 after a few iterations, so
+explicit caching of weights was not pursued.
 
-\subsection{Some Common Mistakes}\label{SCM}
-\begin{itemize}
-\item The word ``data'' is plural, not singular.
-\item The subscript for the permeability of vacuum $\mu_{0}$, and other common scientific constants, is zero with subscript formatting, not a lowercase letter ``o''.
-\item In American English, commas, semicolons, periods, question and exclamation marks are located within quotation marks only when a complete thought or name is cited, such as a title or full quotation. When quotation marks are used, instead of a bold or italic typeface, to highlight a word or phrase, punctuation should appear outside of the quotation marks. A parenthetical phrase or statement at the end of a sentence is punctuated outside of the closing parenthesis (like this). (A parenthetical sentence is punctuated within the parentheses.)
-\item A graph within a graph is an ``inset'', not an ``insert''. The word alternatively is preferred to the word ``alternately'' (unless you really mean something that alternates).
-\item Do not use the word ``essentially'' to mean ``approximately'' or ``effectively''.
-\item In your paper title, if the words ``that uses'' can accurately replace the word ``using'', capitalize the ``u''; if not, keep using lower-cased.
-\item Be aware of the different meanings of the homophones ``affect'' and ``effect'', ``complement'' and ``compliment'', ``discreet'' and ``discrete'', ``principal'' and ``principle''.
-\item Do not confuse ``imply'' and ``infer''.
-\item The prefix ``non'' is not a word; it should be joined to the word it modifies, usually without a hyphen.
-\item There is no period after the ``et'' in the Latin abbreviation ``et al.''.
-\item The abbreviation ``i.e.'' means ``that is'', and the abbreviation ``e.g.'' means ``for example''.
-\end{itemize}
-An excellent style manual for science writers is \cite{b7}.
+The tiled GEMM follows the standard Volkov-style
+block-tile structure~\cite{volkov2008}. Each block
+computes a $\text{BM}\times\text{BN}$ output tile; input tiles
+$A_s$ (a $\text{BM}\times\text{BK}$ slab of the input batch) and
+$B_s$ (a $\text{BK}\times\text{BN}$ slab of the weight matrix) are
+loaded into shared memory, a per-thread register accumulator runs the
+inner $\text{BK}$-long dot product with \texttt{\#pragma unroll}, and
+then the next $K$-panel is loaded. Boundary handling uses zero
+padding on out-of-range loads so the inner loop has no branches. The
+block dimensions are $\text{BM}=\text{BN}=\text{BK}=16$; the weight
+matrix is loaded in its natural $(\text{out},\,\text{in})$ layout
+and transposed implicitly at load time into $B_s$.
 
-\subsection{Authors and Affiliations}\label{AAA}
-\textbf{The class file is designed for, but not limited to, six authors.} A 
-minimum of one author is required for all conference articles. Author names 
-should be listed starting from left to right and then moving down to the 
-next line. This is the author sequence that will be used in future citations 
-and by indexing services. Names should not be listed in columns nor group by 
-affiliation. Please keep your affiliations as succinct as possible (for 
-example, do not differentiate among departments of the same organization).
+\section{Experiments and Results}
 
-\subsection{Identify the Headings}\label{ITH}
-Headings, or heads, are organizational devices that guide the reader through 
-your paper. There are two types: component heads and text heads.
+\subsection{Numerical Parity}
+Table~\ref{tab:parity} summarizes the correctness results collected as
+each kernel landed. All per-kernel tests pass the project-wide
+$1\mathrm{e}{-}4$ absolute-error tolerance by several orders of
+magnitude; observed errors are at the float32 summation-reorder noise
+floor. The full CPU reference forward pass matches PyTorch log-softmax
+on all five fixtures, establishing the oracle used for subsequent GPU
+kernels. The end-to-end CUDA forward pass — all five naive kernels
+composed through device-pointer launchers with activations held
+on-device between layers — matches PyTorch log-softmax on every
+fixture with an overall maximum absolute error of $5.72\mathrm{e}{-}6$
+(roughly four orders of magnitude inside the tolerance), and the
+predicted argmax agrees with PyTorch on every image. This is the
+minimum-tier correctness milestone specified in the proposal.
 
-Component heads identify the different components of your paper and are not 
-topically subordinate to each other. Examples include Acknowledgments and 
-References and, for these, the correct style to use is ``Heading 5''. Use 
-``figure caption'' for your Figure captions, and ``table head'' for your 
-table title. Run-in heads, such as ``Abstract'', will require you to apply a 
-style (in this case, italic) in addition to the style provided by the drop 
-down menu to differentiate the head from the text.
-
-Text heads organize the topics on a relational, hierarchical basis. For 
-example, the paper title is the primary text head because all subsequent 
-material relates and elaborates on this one topic. If there are two or more 
-sub-topics, the next level head (uppercase Roman numerals) should be used 
-and, conversely, if there are not at least two sub-topics, then no subheads 
-should be introduced.
-
-\subsection{Figures and Tables}\label{FAT}
-\paragraph{Positioning Figures and Tables} Place figures and tables at the top and 
-bottom of columns. Avoid placing them in the middle of columns. Large 
-figures and tables may span across both columns. Figure captions should be 
-below the figures; table heads should appear above the tables. Insert 
-figures and tables after they are cited in the text. Use the abbreviation 
-``Fig.~\ref{fig}'', even at the beginning of a sentence.
+To validate the engine beyond the five hand-picked fixtures, a
+full-test-set harness (\texttt{test\_forward\_mnist10k.cu}) runs the
+pipeline against all $10\,000$ MNIST test images under PyTorch
+log-softmax as the oracle. Across $100\,000$ logits, the maximum
+absolute error is $1.91\mathrm{e}{-}5$ for both the naive and the tiled
+pipelines; the argmax agrees with PyTorch on every image; and the
+engine's top-1 accuracy against the ground-truth labels ($97.93\%$) is
+identical to PyTorch's eval-mode accuracy on the same weights. The
+tighter $5.72\mathrm{e}{-}6$ figure for the five-fixture case is a
+subset of this larger run; the $10\,000$-image maximum is the
+appropriate overall number for the minimum-tier correctness claim.
 
 \begin{table}[htbp]
-\caption{Table Type Styles}
+\caption{Per-test maximum absolute error vs.\ the applicable reference
+(PyTorch log-softmax for the CPU forward pass; the CPU reference for
+each CUDA kernel). Tolerance: $1\times10^{-4}$.}
+\label{tab:parity}
 \begin{center}
-\begin{tabular}{|c|c|c|c|}
-\hline
-\textbf{Table}&\multicolumn{3}{|c|}{\textbf{Table Column Head}} \\
-\cline{2-4} 
-\textbf{Head} & \textbf{\textit{Table column subhead}}& \textbf{\textit{Subhead}}& \textbf{\textit{Subhead}} \\
-\hline
-copy& More table copy$^{\mathrm{a}}$& &  \\
-\hline
-\multicolumn{4}{l}{$^{\mathrm{a}}$Sample of a Table footnote.}
+\scriptsize
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Test} & \textbf{Shape / input} & \textbf{Max abs err} \\
+\midrule
+CPU fwd vs PyTorch & fixture 0 (MNIST idx 0) & $\sim 4\mathrm{e}{-}6$ \\
+CPU fwd vs PyTorch & fixtures 1--4          & $\le 4\mathrm{e}{-}6$ \\
+\addlinespace
+conv2d naive     & $N{=}2, 1{\to}10, 5{\times}5 @ 28{\times}28$ & $1.43\mathrm{e}{-}6$ \\
+conv2d naive     & $N{=}2, 10{\to}20, 5{\times}5 @ 12{\times}12$ & $3.82\mathrm{e}{-}6$ \\
+conv2d naive     & odd-dim $3{\to}5, 3{\times}3 @ 13{\times}17$  & $9.54\mathrm{e}{-}7$ \\
+\addlinespace
+max\_pool2d naive & $N{=}2, C{=}10, 24{\times}24$ & $0.00\mathrm{e}{+}0$ \\
+max\_pool2d naive & $N{=}2, C{=}20,  8{\times}8$  & $0.00\mathrm{e}{+}0$ \\
+max\_pool2d naive & odd-dim $C{=}3,  5{\times}7$  & $0.00\mathrm{e}{+}0$ \\
+\addlinespace
+relu naive       & post-conv1 pool (1440)                      & $0.00\mathrm{e}{+}0$ \\
+relu naive       & post-conv2 pool (320)                       & $0.00\mathrm{e}{+}0$ \\
+relu naive       & fc1 output (50)                             & $0.00\mathrm{e}{+}0$ \\
+relu naive       & odd 1023                                    & $0.00\mathrm{e}{+}0$ \\
+\addlinespace
+linear naive     & LeNet fc1 ($N{=}2$, $320{\to}50$)            & $2.86\mathrm{e}{-}6$ \\
+linear naive     & LeNet fc2 ($N{=}8$,  $50{\to}10$)            & $9.54\mathrm{e}{-}7$ \\
+linear naive     & off-model ($N{=}3$, $1024{\to}17$)           & $7.63\mathrm{e}{-}6$ \\
+\addlinespace
+log\_softmax naive & LeNet final ($N{=}1$, $C{=}10$)             & $2.38\mathrm{e}{-}7$ \\
+log\_softmax naive & batched ($N{=}8$, $C{=}10$)                 & $4.77\mathrm{e}{-}7$ \\
+log\_softmax naive & wider-$C$ stress ($N{=}2$, $C{=}128$)       & $4.77\mathrm{e}{-}7$ \\
+log\_softmax naive & stability ($N{=}2$, logits $\sim 80$)       & $2.38\mathrm{e}{-}7$ \\
+\addlinespace
+GPU forward (E2E) & fixture 0 (MNIST idx 7) & $3.82\mathrm{e}{-}6$ \\
+GPU forward (E2E) & fixture 1               & $5.72\mathrm{e}{-}6$ \\
+GPU forward (E2E) & fixture 2               & $1.91\mathrm{e}{-}6$ \\
+GPU forward (E2E) & fixture 3               & $1.91\mathrm{e}{-}6$ \\
+GPU forward (E2E) & fixture 4               & $2.86\mathrm{e}{-}6$ \\
+\addlinespace
+conv2d cuDNN     & $N{=}2, 1{\to}10, 5{\times}5 @ 28{\times}28$ & $1.91\mathrm{e}{-}6$ \\
+conv2d cuDNN     & $N{=}2, 10{\to}20, 5{\times}5 @ 12{\times}12$ & $6.20\mathrm{e}{-}6$ \\
+\addlinespace
+GPU forward 10k naive & all 10\,000 MNIST (argmax 100\%) & $1.91\mathrm{e}{-}5$ \\
+GPU forward 10k tiled & all 10\,000 MNIST (argmax 100\%) & $1.91\mathrm{e}{-}5$ \\
+\bottomrule
 \end{tabular}
-\label{tab1}
+\end{center}
+\end{table}
+
+\subsection{Throughput}
+All timings below are CUDA-event measurements collected by
+\texttt{tools/bench.cu}: each kernel is invoked with a handful of
+untimed warmup iterations, then repeated $200$ times (or $50$ times
+for the end-to-end forward pass at batch $64$) between a start and
+stop \texttt{cudaEvent}, and the reported value is the mean per-call
+time in milliseconds. Inputs are allocated and populated with random
+values once per measurement. Device-pointer variants of each kernel
+are used so that \texttt{cudaMalloc}/\texttt{cudaMemcpy} cost is not
+charged against the per-kernel number. The end-to-end forward-pass
+number includes the per-call host-to-device copy of the full weight
+set and input batch plus the device-to-host copy of the output
+logits, but not the one-time load of weight files from disk.
+
+Table~\ref{tab:throughput-conv} compares the naive and tiled
+convolution kernels at the two LeNet conv shapes, at a
+batch-64 variant of each, and at an off-model synthetic shape
+($32{\to}64$, $5{\times}5$ filter on a $64{\times}64$ input) chosen
+to give the tile more work per output block.
+Table~\ref{tab:throughput-linear} does the same for the linear
+kernel, including a $1024\times1024\times1024$ synthetic case to
+exercise the tiled GEMM at a problem size where shared-memory reuse
+actually dominates. Table~\ref{tab:throughput-e2e} reports end-to-end
+forward-pass time for the full LeNet pipeline at batch~1 and
+batch~64.
+
+\begin{table}[htbp]
+\caption{Per-kernel convolution throughput on RTX~4090 (ms per launch,
+mean over 200 reps with warmup). The final two columns are tiled and
+cuDNN speedup relative to the naive kernel.}
+\label{tab:throughput-conv}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Shape} & \textbf{Naive} & \textbf{Tiled} & \textbf{cuDNN} &
+\textbf{Tiled} & \textbf{cuDNN} \\
+               & \textbf{(ms)}  & \textbf{(ms)}  & \textbf{(ms)}  &
+\textbf{$\times$} & \textbf{$\times$} \\
+\midrule
+conv1 ($N{=}1$, $1{\to}10$, $5^2@28^2$)     & 0.0027 & 0.0030 & 0.0681 & 0.89 & 0.04 \\
+conv2 ($N{=}1$, $10{\to}20$, $5^2@12^2$)    & 0.0123 & 0.0140 & 0.0855 & 0.88 & 0.14 \\
+conv1 ($N{=}64$, $1{\to}10$, $5^2@28^2$)    & 0.0084 & 0.0101 & 0.0649 & 0.84 & 0.13 \\
+conv2 ($N{=}64$, $10{\to}20$, $5^2@12^2$)   & 0.0288 & 0.0332 & 0.0661 & 0.87 & 0.44 \\
+synth ($N{=}1$, $32{\to}64$, $5^2@64^2$)    & 0.0988 & 0.1197 & 0.0859 & 0.83 & 1.15 \\
+\bottomrule
+\end{tabular}
 \end{center}
 \end{table}
 
 \begin{figure}[htbp]
-\centerline{\includegraphics{fig1.png}}
-\caption{Example of a figure caption.}
-\label{fig}
+\centering
+\includegraphics[width=\linewidth]{figs/conv_bars.png}
+\caption{Convolution speedup over the naive direct kernel on RTX~4090.
+cuDNN (\texttt{IMPLICIT\_PRECOMP\_GEMM} with FMA math to match FP32 numerics)
+pays a fixed per-launch overhead that dominates at LeNet scale and only
+crosses over on the larger $32{\to}64$ synthetic shape.}
+\label{fig:conv-bars}
 \end{figure}
 
-Figure Labels: Use 8 point Times New Roman for Figure labels. Use words 
-rather than symbols or abbreviations when writing Figure axis labels to 
-avoid confusing the reader. As an example, write the quantity 
-``Magnetization'', or ``Magnetization, M'', not just ``M''. If including 
-units in the label, present them within parentheses. Do not label axes only 
-with units. In the example, write ``Magnetization (A/m)'' or ``Magnetization 
-\{A[m(1)]\}'', not just ``A/m''. Do not label axes with a ratio of 
-quantities and units. For example, write ``Temperature (K)'', not 
-``Temperature/K''.
+\begin{table}[htbp]
+\caption{Per-kernel linear / GEMM throughput on RTX~4090. Per-launch
+mean over 200 reps with warmup.}
+\label{tab:throughput-linear}
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Shape} & \textbf{Naive (ms)} & \textbf{Tiled (ms)} &
+\textbf{Speedup} \\
+\midrule
+fc1 ($N{=}1$, $320{\to}50$)         & 0.0107 & 0.0102 & $1.06\times$ \\
+fc2 ($N{=}1$, $50{\to}10$)          & 0.0025 & 0.0030 & $0.83\times$ \\
+fc1 ($N{=}64$, $320{\to}50$)        & 0.0375 & 0.0104 & $3.60\times$ \\
+synth ($N{=}1024$, $1024{\to}1024$) & 3.4153 & 0.5310 & $6.43\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
 
-\section*{Acknowledgment}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figs/gemm_sweep.png}
+\caption{Tiled-GEMM speedup over the naive kernel as the batch
+dimension $N$ sweeps from $1$ to $1024$ at a fixed
+$1024\times1024$ weight shape. The plateau at $\sim\!3.8\times$ for
+$N\le 16$ reflects the regime in which the output $M$-tile is fully
+populated but only one $K$-panel is reused; the further climb to
+$6.43\times$ at $N{=}1024$ reflects full reuse along all three
+dimensions.}
+\label{fig:gemm-sweep}
+\end{figure}
 
-The preferred spelling of the word ``acknowledgment'' in America is without 
-an ``e'' after the ``g''. Avoid the stilted expression ``one of us (R. B. 
-G.) thanks $\ldots$''. Instead, try ``R. B. G. thanks$\ldots$''. Put sponsor 
-acknowledgments in the unnumbered footnote on the first page.
+\begin{table}[htbp]
+\caption{End-to-end LeNet forward pass on RTX~4090: weights and
+input H2D, all five kernels, output D2H. Per-call mean over 50 reps
+with warmup.}
+\label{tab:throughput-e2e}
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Variant} & \textbf{Naive (ms)} & \textbf{Tiled (ms)} &
+\textbf{Speedup} \\
+\midrule
+forward $N{=}1$   & 0.1648 & 0.1362 & $1.21\times$ \\
+forward $N{=}64$  & 0.4601 & 0.4351 & $1.06\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
 
-\section*{References}
+The tiled convolution kernel is a slight regression at every
+LeNet-scale shape. The naive kernel issues
+$C_{\text{in}}\cdot K_h\cdot K_w = 25$ or $250$ global loads per output
+thread depending on the layer; the weight tensor is $250$ floats for
+\texttt{conv1} and $5000$ for \texttt{conv2}, small enough that after
+the first few output blocks the working set is hot in the L1 and
+read-only caches. Tiling trades those already-cached global reads
+for shared-memory loads plus two \texttt{\_\_syncthreads} per
+input-channel iteration, and at $K{=}5$ the arithmetic intensity is
+high enough that the kernel is already compute-bound, so the
+synchronization cost is a net loss. The regression persists on the
+off-model synthetic shape, suggesting the cross-over where shared-memory
+reuse actually pays is at filters large enough and channel counts
+high enough to exhaust the caches --- well above anything LeNet
+inference touches.
 
-Please number citations consecutively within brackets \cite{b1}. The 
-sentence punctuation follows the bracket \cite{b2}. Refer simply to the reference 
-number, as in \cite{b3}---do not use ``Ref. \cite{b3}'' or ``reference \cite{b3}'' except at 
-the beginning of a sentence: ``Reference \cite{b3} was the first $\ldots$''
+The cuDNN column in Table~\ref{tab:throughput-conv} tells the same
+story from the opposite direction. cuDNN is pinned to
+\texttt{IMPLICIT\_PRECOMP\_GEMM} with \texttt{CUDNN\_FMA\_MATH} so that
+numerics match the FP32 direct-convolution reference (the default
+\texttt{CUDNN\_DEFAULT\_MATH} silently selects TF32 tensor cores on
+Ada, whose $10$-bit mantissa produces $\sim\!10^{-3}$ absolute error
+--- larger than our project tolerance, and not comparable to the
+naive/tiled kernels). Under matched numerics, cuDNN is
+$7{-}25\times$ \emph{slower} than the naive kernel at every LeNet
+shape; the per-launch descriptor build, workspace query, and
+implicit-GEMM dispatch cost on the order of $70\,\mu s$, which is
+pure overhead when the actual convolution takes single-digit
+microseconds. Only on the $32{\to}64$, $64\times64$ synthetic shape
+does cuDNN overtake the naive kernel ($1.15\times$), and that
+crossover is consistent with the shared-memory argument above: once
+the working set is large enough that the naive kernel stops being
+L1-resident, any formulation that amortizes its dispatch overhead
+starts to win. Figure~\ref{fig:conv-bars} visualizes all three
+variants on a single axis.
 
-Number footnotes separately in superscripts. Place the actual footnote at 
-the bottom of the column in which it was cited. Do not put footnotes in the 
-abstract or reference list. Use letters for table footnotes.
+The tiled GEMM tells a different story. At batch-64 \texttt{fc1}
+($64{\times}320$ times $320{\times}50$), a $16{\times}16$ tile fills
+with real work and the $16\times$ reuse factor along each input
+dimension shows up as a $3.60\times$ speedup. At
+$1024\times1024\times1024$ --- a ``real'' GEMM workload --- the
+tiled kernel is $6.43\times$ faster than the naive one-thread-per-output
+version. At batch-1 inference sizes the output tile is $1\times10$
+or $1\times50$, so most of each $16\times16$ block sits idle and the
+advantage disappears. Figure~\ref{fig:gemm-sweep} traces the
+tiled-vs-naive speedup as $N$ sweeps from $1$ to $1024$ at a fixed
+$1024\times1024$ weight shape: speedup plateaus at $\sim\!3.77\times$
+for $N\le 16$ (the regime where an $M$-tile is fully loaded but only
+one $K$-panel is reused), climbs through $5.02\times$ at $N{=}64$ and
+$6.06\times$ at $N{=}256$, and saturates at $6.43\times$ for $N\ge 1024$.
 
-Unless there are six authors or more give all authors' names; do not use 
-``et al.''. Papers that have not been published, even if they have been 
-submitted for publication, should be cited as ``unpublished'' \cite{b4}. Papers 
-that have been accepted for publication should be cited as ``in press'' \cite{b5}. 
-Capitalize only the first word in a paper title, except for proper nouns and 
-element symbols.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figs/e2e_breakdown.png}
+\caption{Per-kernel contribution to the $N{=}1$ LeNet forward pass.
+The ten CUDA kernels together account for $\sim\!39\,\mu s$; the
+remaining $\sim\!126\,\mu s$ (the bottom bar) is host-side launch
+submission, CUDA runtime overhead, and synchronization on the final
+device-to-host copy. Conv2 and fc1 dominate actual kernel work; every
+other kernel is within noise of the $\sim\!1.7\,\mu s$ launch floor
+for a trivial CUDA kernel on this platform.}
+\label{fig:e2e-breakdown}
+\end{figure}
 
-For papers published in translation journals, please give the English 
-citation first, followed by the original foreign-language citation \cite{b6}.
+End-to-end the kernel-level story carries through weakly.
+Table~\ref{tab:throughput-e2e} measures the GPU-side pipeline only
+(weights are loaded and \texttt{cudaMemcpy}'d once before timing
+starts, not on every invocation), so the reported times are
+dominated by the ten kernel launches plus their serialized
+activations. The tiled pipeline comes out $1.21\times$ faster at
+batch~1 and $1.06\times$ faster at batch~64: the tiled \texttt{fc1}
+win outweighs the small tiled-conv regression at LeNet scale, but
+not by a large margin. Shrinking the ten-launch overhead --- for
+example by fusing \texttt{conv+bias+pool+ReLU} into a single kernel
+--- is the biggest remaining end-to-end lever and is discussed in
+Section~\ref{sec:discussion}.
 
-\begin{thebibliography}{00}
-\bibitem{b1} G. Eason, B. Noble, and I. N. Sneddon, ``On certain integrals of Lipschitz-Hankel type involving products of Bessel functions,'' Phil. Trans. Roy. Soc. London, vol. A247, pp. 529--551, April 1955.
-\bibitem{b2} J. Clerk Maxwell, A Treatise on Electricity and Magnetism, 3rd ed., vol. 2. Oxford: Clarendon, 1892, pp.68--73.
-\bibitem{b3} I. S. Jacobs and C. P. Bean, ``Fine particles, thin films and exchange anisotropy,'' in Magnetism, vol. III, G. T. Rado and H. Suhl, Eds. New York: Academic, 1963, pp. 271--350.
-\bibitem{b4} K. Elissa, ``Title of paper if known,'' unpublished.
-\bibitem{b5} R. Nicole, ``Title of paper with only first word capitalized,'' J. Name Stand. Abbrev., in press.
-\bibitem{b6} Y. Yorozu, M. Hirano, K. Oka, and Y. Tagawa, ``Electron spectroscopy studies on magneto-optical media and plastic substrate interface,'' IEEE Transl. J. Magn. Japan, vol. 2, pp. 740--741, August 1987 [Digests 9th Annual Conf. Magnetics Japan, p. 301, 1982].
-\bibitem{b7} M. Young, The Technical Writer's Handbook. Mill Valley, CA: University Science, 1989.
-\bibitem{b8} D. P. Kingma and M. Welling, ``Auto-encoding variational Bayes,'' 2013, arXiv:1312.6114. [Online]. Available: https://arxiv.org/abs/1312.6114
-\bibitem{b9} S. Liu, ``Wi-Fi Energy Detection Testbed (12MTC),'' 2023, gitHub repository. [Online]. Available: https://github.com/liustone99/Wi-Fi-Energy-Detection-Testbed-12MTC
-\bibitem{b10} ``Treatment episode data set: discharges (TEDS-D): concatenated, 2006 to 2009.'' U.S. Department of Health and Human Services, Substance Abuse and Mental Health Services Administration, Office of Applied Studies, August, 2013, DOI:10.3886/ICPSR30122.v2
-\bibitem{b11} K. Eves and J. Valasek, ``Adaptive control for singularly perturbed systems examples,'' Code Ocean, Aug. 2023. [Online]. Available: https://codeocean.com/capsule/4989235/tree
+\subsection{Case Study: Matching Numerics Against cuDNN}
+Reaching the stretch tier surfaced a numerical issue that is easy to
+miss and worth calling out. Ada Lovelace GPUs (compute capability~8.9,
+including the RTX~4090 used here) default to TF32 tensor cores for
+FP32 convolutions when cuDNN is invoked with the default math mode
+\texttt{CUDNN\_DEFAULT\_MATH}. TF32 keeps an FP32-wide exponent but
+truncates the mantissa to 10~bits, and on our conv2 shape this
+produced a maximum absolute error of $\sim\!5.3\times10^{-3}$ against
+the direct-convolution CPU reference --- an order of magnitude above
+the project's $1\times10^{-4}$ tolerance, and orders of magnitude
+above the FP32 summation-reorder noise floor observed elsewhere in
+this report. Similarly, the default cuDNN algorithm selector for the
+conv2 shape picks \texttt{WINOGRAD\_NONFUSED}, whose algebraic
+transformation introduces a separate $\sim\!10^{-3}$ error term.
+Getting cuDNN to produce numerics comparable to our direct-convolution
+kernels required two explicit pins: the math type set to
+\texttt{CUDNN\_FMA\_MATH} (via \texttt{cudnnSetConvolutionMathType})
+to force true FP32 fused-multiply-add, and the algorithm pinned to
+\texttt{IMPLICIT\_PRECOMP\_GEMM} to stay on direct convolution
+rather than Winograd. Under those pins cuDNN
+matches the naive kernel to $1.91\mathrm{e}{-}6$ on conv1 and
+$6.20\mathrm{e}{-}6$ on conv2. The practical lesson is that
+``use the vendor library'' is not a numerical-accuracy free-win on
+modern GPUs --- defaults are tuned for training throughput, not for
+parity with textbook floating-point semantics, and a meaningful
+throughput comparison requires matched math modes.
+
+\subsection{Discussion of Deviations}
+The proposal named one peer-reviewed paper; the rubric
+requires at least three, so two additional references are added
+(Lavin and Gray, CVPR~2016; Volkov and Demmel, SC~2008). The
+proposal described ``softmax'' as the final nonlinearity, but the
+Project~5 network emits log-softmax outputs; the CUDA kernel
+therefore implements log-softmax (same numerical-stability trap and
+one extra subtract per element) so that the end-to-end diff against
+PyTorch is apples-to-apples. Hardware moved from a T4 on Colab to an
+RTX~4090 on RunPod for the development-loop reasons noted above; the
+kernels compile for compute capabilities 75/80/86/89 and remain
+portable to the original T4 target.
+
+\section{Discussion and Summary}
+\label{sec:discussion}
+Two broad observations from this work are worth stating directly.
+
+First, the naive-first discipline paid off twice. The first time was
+the obvious win: because every kernel was validated against the CPU
+reference before it was integrated, the minimum-tier end-to-end
+forward pass came up green on the first attempt, with a maximum
+absolute error of $5.72\times10^{-6}$ across all five fixtures and
+argmax matching on every image. No time was spent bisecting
+layer-to-layer logit divergence at 2am. The second win was less
+obvious: the per-kernel harness is what made it safe to add tiled
+variants and an additional benchmark surface without worrying about
+silent correctness regressions. The tiled kernels were written
+against the same interface, their unit tests exercised the same
+shapes, and promoting them into the end-to-end pipeline was a
+drop-in substitution.
+
+Second, shared-memory tiling is not a universal optimization --- it
+is a cache-reuse optimization, and LeNet inference at the target
+scale is not cache-constrained. For $5\times5$ convolutions on
+$28\times28$ or $12\times12$ feature maps with $\leq20$ channels,
+the entire weight tensor is a few kilobytes and the input feature
+map for one block is a few kilobytes more; both sit comfortably in
+the RTX~4090's L1, and the extra \texttt{\_\_syncthreads} calls
+required by the tile load/compute split become the dominant cost.
+The tiled GEMM paints the opposite picture: at a
+$1024\times1024\times1024$ workload the naive one-thread-per-output
+kernel takes $3.42$~ms and the tiled variant takes $0.53$~ms, a
+$6.4\times$ speedup. The same tiled GEMM at LeNet inference shapes
+with batch~1 barely breaks even because the output tile is $1\times10$
+or $1\times50$ and most lanes of the block are idle. Batch~64
+\texttt{fc1} sits between these regimes and shows a $3.6\times$
+speedup. The lesson is not ``tiling is bad at small shapes'' --- the
+kernel is correct and the tile geometry is reasonable --- but that
+the target workload does not actually exercise the optimization the
+project name suggests.
+
+Given more time, the natural next step is closing the gap to cuDNN
+on larger convolution shapes where its dispatch overhead is
+amortized. At LeNet scale the comparison favors the hand-written
+direct kernels --- cuDNN's per-launch fixed cost ($\sim\!70\,\mu s$
+on this platform) exceeds the entire convolution it is dispatching
+--- but on the $32{\to}64$, $64\times64$ synthetic shape cuDNN
+already pulls ahead, and on production-scale convolutions (hundreds
+of channels, large spatial extents) its performance rests on
+Winograd-style algorithmic reformulations for $3\times3$ and
+$5\times5$ filters~\cite{lavingray2016}, Tensor-Core mixed-precision
+paths on Ampere and later, and heavily hand-tuned kernels per shape.
+A direct-convolution kernel like ours has no access to any of that.
+A productive continuation would replace the direct convolution with
+an \texttt{im2col} plus GEMM formulation, reusing our tiled GEMM,
+and benchmark the resulting pipeline against cuDNN on the same
+shapes. A second promising direction is operator
+fusion: the current pipeline has ten kernel launches per image, and
+\texttt{conv+bias+ReLU} and \texttt{conv+bias+pool+ReLU} are natural
+fusion candidates that would shrink launch overhead and the
+host-to-device memory traffic that currently dominates the
+batch-1 end-to-end time.
+
+\begin{thebibliography}{9}
+% Peer-reviewed, real venues -- verify final formatting before submit.
+\bibitem{lecun1998}
+Y.~LeCun, L.~Bottou, Y.~Bengio, and P.~Haffner,
+``Gradient-based learning applied to document recognition,''
+\emph{Proceedings of the IEEE}, vol.~86, no.~11, pp.~2278--2324, Nov.~1998.
+
+\bibitem{lavingray2016}
+A.~Lavin and S.~Gray,
+``Fast algorithms for convolutional neural networks,''
+in \emph{Proc.\ IEEE Conf.\ Computer Vision and Pattern Recognition (CVPR)},
+2016, pp.~4013--4021.
+
+\bibitem{volkov2008}
+V.~Volkov and J.~W.~Demmel,
+``Benchmarking GPUs to tune dense linear algebra,''
+in \emph{Proc.\ Int.\ Conf.\ High Performance Computing, Networking,
+Storage and Analysis (SC)}, 2008, pp.~1--11.
+
+% Optional 4th, for the cuDNN baseline paragraph. Often cited from
+% arXiv but the IEEE-preferred form is the ACM/IEEE workshop if used.
+\bibitem{cudnn2014}
+S.~Chetlur \emph{et al.},
+``cuDNN: Efficient primitives for deep learning,''
+2014, arXiv:1410.0759.
 \end{thebibliography}
-
-\vspace{12pt}
-\color{red}
-IEEE conference templates contain guidance text for composing and formatting conference papers. Please ensure that all template text is removed from your conference paper prior to submission to the conference. Failure to remove the template text from your paper may result in your paper not being published.
 
 \end{document}

@@ -14,40 +14,55 @@ I use PyTorch throughout the course without a concrete sense of what
 replacing every layer operation in the Project 5 LeNet-MNIST network with a
 hand-written CUDA kernel. Weights are exported once from the trained PyTorch
 model as raw float32 binaries; at inference time the engine links only against
-the CUDA runtime. Correctness is validated against PyTorch's log-softmax
-outputs to within 1e-4 absolute tolerance on the full MNIST test set.
-Performance is measured with Nsight Compute and compared to cuDNN as an
-upper-bound reference.
+the CUDA runtime. The pipeline is implemented in two variants — naive kernels
+for the minimum tier and tiled shared-memory kernels for the target tier — and
+compared to a cuDNN baseline for the stretch tier. Correctness is validated
+against PyTorch log-softmax on all 10,000 MNIST test images with max absolute
+error 1.91e-5, 100% argmax agreement, and accuracy (97.93%) identical to
+PyTorch's eval-mode accuracy on the same weights.
 
 ## Build & run
 
-This project builds on Linux with the NVIDIA CUDA Toolkit installed.
-It does **not** build on macOS (no `nvcc`).
+Linux with the NVIDIA CUDA Toolkit. Does **not** build on macOS (no `nvcc`).
+cuDNN is auto-detected; the stretch-tier targets are only built when it is
+available.
 
 ```bash
-cmake -B build -S .
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/infer                # runs forward pass on a sample input
-ctest --test-dir build       # runs per-kernel unit tests
+ctest --test-dir build       # per-kernel + end-to-end correctness tests
+build/bench                  # throughput numbers (add --csv to pipe to plot_bench.py)
+```
+
+The 10,000-image parity harness needs bulk fixtures (~32 MB, gitignored):
+
+```bash
+python3 tools/dump_fixtures.py --bulk --count 10000
+build/test_forward_mnist10k
 ```
 
 ## Repository layout
 
 ```
-kernels/      CUDA kernels (conv, gemm, pool, activations)
+kernels/      CUDA kernels — naive + tiled conv2d / linear, pool, ReLU,
+              log_softmax, and the cuDNN wrapper. Per-kernel .h/.cu pairs.
 host/         Host-side driver, weight loader, CPU reference implementations
-tests/        Per-kernel unit tests — each CUDA kernel's output is compared
-              against a CPU reference implementation on small fixtures
-tools/        Python tool for exporting weights from Project 5's .pth checkpoint
-weights/      Exported weight binaries (float32, little-endian)
-fixtures/     Small test-input / expected-output binaries for unit tests
-report/       Final IEEE-format report
+tests/        Per-kernel unit tests (diffed against CPU reference at 1e-4)
+              and the end-to-end forward-pass parity harness
+tools/        Python: weight export, fixture dump, figure plotting.
+              CUDA:   throughput microbenchmark (tools/bench.cu).
+weights/      Exported weight binaries (float32, little-endian, PyTorch layout)
+fixtures/     MNIST inputs + PyTorch log-softmax oracles for correctness tests
+report/       Final IEEE-format report (report.pdf is the submitted artifact)
 ```
 
-## Demo video
+## Report and demo
 
-TODO — URL will appear here once uploaded.
+The final report is at `report/report.pdf` (IEEE 2-column conference format,
+built from `report/report.tex`).
+
+Demo video: TODO — URL will appear here once uploaded.
 
 ## Group members
 
-Solo project: Ashish Dasu.
+Solo project: Ashish Dasu (`dasu.a@northeastern.edu`).
