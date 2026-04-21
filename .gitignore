@@ -29,6 +29,10 @@ build/
 # The .tex is kept locally for reference but not versioned.
 proposal/*.tex
 
+# CLAUDE.md is local-only project notes, not part of the repo.
+CLAUDE.md
+docs/
+
 # Python
 __pycache__/
 *.pyc
