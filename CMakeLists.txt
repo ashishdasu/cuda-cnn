@@ -178,6 +178,13 @@ if(CMAKE_CUDA_COMPILER)
     add_executable(test_forward_mnist10k tests/test_forward_mnist10k.cu)
     target_link_libraries(test_forward_mnist10k PRIVATE cnn_kernels cnn_host)
 
+    # Single-image inference CLI. The user-facing counterpart to the
+    # test / benchmark binaries: image in, prediction out. Reads one
+    # 1x28x28 float32 tensor (from --fixture / --bulk / --input),
+    # runs naive or tiled forward, prints top-K log-probabilities.
+    add_executable(predict tools/predict.cu)
+    target_link_libraries(predict PRIVATE cnn_kernels cnn_host)
+
     # End-to-end: compose all five naive kernels through device-pointer
     # launchers and validate the full pipeline vs PyTorch fixtures.
     # Passing this is the minimum-tier correctness milestone.

@@ -34,6 +34,15 @@ ctest --test-dir build       # per-kernel + end-to-end correctness tests
 build/bench                  # throughput numbers (add --csv to pipe to plot_bench.py)
 ```
 
+Single-image inference CLI (wraps the tiled forward pass):
+
+```bash
+build/predict --fixture 0                         # predict fixtures/input_0.bin
+build/predict --bulk 42 --variant naive           # row 42 of the 10k MNIST test set
+build/predict --input my_digit.bin --reps 200     # arbitrary raw 1x28x28 float32
+build/predict --help
+```
+
 The 10,000-image parity harness needs bulk fixtures (~32 MB, gitignored):
 
 ```bash
