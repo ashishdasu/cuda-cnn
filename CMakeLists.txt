@@ -130,6 +130,47 @@ if(CMAKE_CUDA_COMPILER)
              COMMAND test_linear_tiled
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+    # --- Optional cuDNN baseline (stretch tier) --------------------------
+    # Only built if cuDNN is found. Absent on macOS dev hosts and any
+    # GPU box that doesn't have libcudnn-dev installed.
+    find_path(CUDNN_INCLUDE_DIR cudnn.h
+              HINTS /usr/include/x86_64-linux-gnu
+                    /usr/local/cuda/include
+                    /usr/include)
+    find_library(CUDNN_LIBRARY cudnn
+                 HINTS /usr/lib/x86_64-linux-gnu
+                       /usr/local/cuda/lib64)
+    if(CUDNN_INCLUDE_DIR AND CUDNN_LIBRARY)
+        message(STATUS "cuDNN found: ${CUDNN_LIBRARY} (headers ${CUDNN_INCLUDE_DIR})")
+        add_library(cnn_cudnn STATIC kernels/conv2d_cudnn.cu)
+        set_target_properties(cnn_cudnn PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            CUDA_SEPARABLE_COMPILATION ON)
+        target_include_directories(cnn_cudnn PUBLIC ${CUDNN_INCLUDE_DIR})
+        target_link_libraries(cnn_cudnn PUBLIC ${CUDNN_LIBRARY})
+
+        add_executable(test_conv2d_cudnn tests/test_conv2d_cudnn.cu)
+        target_link_libraries(test_conv2d_cudnn PRIVATE cnn_cudnn cnn_host)
+        add_test(NAME test_conv2d_cudnn
+                 COMMAND test_conv2d_cudnn
+                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+        set(CNN_HAS_CUDNN 1)
+    else()
+        message(STATUS "cuDNN not found; skipping stretch-tier baseline")
+    endif()
+
+    # Throughput benchmark. Not an add_test target — it produces
+    # timing numbers for the Experiments/Throughput table, not a
+    # pass/fail correctness check. Links cuDNN when available so the
+    # baseline column gets populated automatically.
+    add_executable(bench tools/bench.cu)
+    target_link_libraries(bench PRIVATE cnn_kernels cnn_host)
+    if(CNN_HAS_CUDNN)
+        target_link_libraries(bench PRIVATE cnn_cudnn)
+        target_compile_definitions(bench PRIVATE CNN_HAS_CUDNN=1)
+    endif()
+
     # End-to-end: compose all five naive kernels through device-pointer
     # launchers and validate the full pipeline vs PyTorch fixtures.
     # Passing this is the minimum-tier correctness milestone.
