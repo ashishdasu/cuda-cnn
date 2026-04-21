@@ -24,8 +24,8 @@ PyTorch's eval-mode accuracy on the same weights.
 ## Build & run
 
 Linux with the NVIDIA CUDA Toolkit. Does **not** build on macOS (no `nvcc`).
-cuDNN is auto-detected; the stretch-tier targets are only built when it is
-available.
+cuDNN is auto-detected; the stretch-tier targets (cuDNN conv wrapper and
+the cuDNN row in `bench`) are only built when it is available.
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -39,6 +39,25 @@ The 10,000-image parity harness needs bulk fixtures (~32 MB, gitignored):
 ```bash
 python3 tools/dump_fixtures.py --bulk --count 10000
 build/test_forward_mnist10k
+```
+
+## Reproducing the report numbers and figures
+
+Weights in `weights/` are checked in (float32 binaries exported from the
+Project 5 PyTorch checkpoint via `tools/export_weights.py`; regeneration
+requires the original `.pth`). Fixtures in `fixtures/` (the five small
+ones used by the unit tests) are also checked in.
+
+Python side (weight export, fixture dump, figure plotting) needs
+`torch`, `torchvision`, `numpy`, `matplotlib`. CUDA side needs CUDA
+Toolkit ≥ 12.0 and, for the stretch tier, `cuDNN`
+(`sudo apt install libcudnn9-dev-cuda-12` on the RunPod instance used
+for all numbers in the report).
+
+```bash
+build/bench --csv > bench.csv          # produces the data in report/figs/
+python3 tools/plot_bench.py bench.csv report/figs/
+cd report && pdflatex report.tex && pdflatex report.tex
 ```
 
 ## Repository layout

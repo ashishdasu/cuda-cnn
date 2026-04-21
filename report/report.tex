@@ -9,6 +9,8 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,fit}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
@@ -108,10 +110,67 @@ in the stretch tier as a throughput reference.
 
 \section{Methods}
 
+\begin{figure*}[!t]
+\centering
+\begin{tikzpicture}[
+  tnode/.style={draw, semithick, rounded corners=1pt, fill=black!4,
+                minimum height=0.85cm, minimum width=0.95cm,
+                align=center, inner sep=2pt, font=\small},
+  shp/.style={font=\scriptsize\ttfamily, text=black!75},
+  opl/.style={font=\scriptsize\itshape, align=center, text=black!80,
+              inner sep=1pt},
+  ar/.style={-{Stealth[length=2.2mm,width=1.7mm]}, semithick},
+]
+  \node[tnode] (x) {$\mathbf{x}$};
+  \node[shp, below=2pt of x] {1{\texttimes}28{\texttimes}28};
+
+  \node[tnode, right=1.85cm of x] (h1) {$\mathbf{h}_1$};
+  \node[shp, below=2pt of h1] {10{\texttimes}12{\texttimes}12};
+
+  \node[tnode, right=1.85cm of h1] (h2) {$\mathbf{h}_2$};
+  \node[shp, below=2pt of h2] {20{\texttimes}4{\texttimes}4};
+
+  \node[tnode, right=1.4cm of h2] (v) {$\mathbf{v}$};
+  \node[shp, below=2pt of v] {320};
+
+  \node[tnode, right=1.55cm of v] (u) {$\mathbf{u}$};
+  \node[shp, below=2pt of u] {50};
+
+  \node[tnode, right=1.7cm of u] (y) {$\hat{\mathbf{y}}$};
+  \node[shp, below=2pt of y] {10};
+
+  \draw[ar] (x)  -- node[opl, above] {\texttt{conv1} $\to$ \texttt{pool} $\to$ \texttt{ReLU}} (h1);
+  \draw[ar] (h1) -- node[opl, above] {\texttt{conv2} $\to$ \texttt{pool} $\to$ \texttt{ReLU}} (h2);
+  \draw[ar] (h2) -- node[opl, above] {flatten}                                                (v);
+  \draw[ar] (v)  -- node[opl, above] {\texttt{fc1} $\to$ \texttt{ReLU}}                        (u);
+  \draw[ar] (u)  -- node[opl, above] {\texttt{fc2} $\to$ \texttt{log\_softmax}}                (y);
+
+  \node[draw, dashed, thin, rounded corners=2pt,
+        inner sep=6pt, fit=(x) (h1) (h2), label={[font=\scriptsize\itshape, text=black!60]below:convolutional stages}] {};
+  \node[draw, dashed, thin, rounded corners=2pt,
+        inner sep=6pt, fit=(v) (u) (y), label={[font=\scriptsize\itshape, text=black!60]below:fully-connected stages}] {};
+\end{tikzpicture}
+\caption{LeNet-MNIST forward-pass pipeline as implemented by this
+engine. Six named tensor stages --- input $\mathbf{x}$, two
+convolutional activation maps $\mathbf{h}_{1,2}$, flattened vector
+$\mathbf{v}$, hidden vector $\mathbf{u}$, output log-probabilities
+$\hat{\mathbf{y}}$ --- are connected by ten separate CUDA kernel
+launches. Transitions in the figure aggregate the kernels that
+operate on the same feature-map shape; the underlying launch
+sequence is \texttt{conv1}, \texttt{max\_pool2d}, \texttt{ReLU},
+\texttt{conv2}, \texttt{max\_pool2d}, \texttt{ReLU}, flatten (an
+implicit reshape, not a launched kernel), \texttt{linear} (fc1),
+\texttt{ReLU}, \texttt{linear} (fc2), \texttt{log\_softmax}.
+Activations remain on-device between kernels: only $\mathbf{x}$ is
+copied host-to-device and only $\hat{\mathbf{y}}$ is copied back.}
+\label{fig:pipeline}
+\end{figure*}
+
 \subsection{Target Network and Weight Export}
 The target network is the LeNet-style model from the author's
-CS5330 Project~5: \texttt{conv1}~($1{\to}10$, $5{\times}5$, stride~1),
-max-pool~$2{\times}2$, ReLU; \texttt{conv2}~($10{\to}20$,
+CS5330 Project~5, summarized in
+Fig.~\ref{fig:pipeline}: \texttt{conv1}~($1{\to}10$, $5{\times}5$,
+stride~1), max-pool~$2{\times}2$, ReLU; \texttt{conv2}~($10{\to}20$,
 $5{\times}5$, stride~1), \texttt{Dropout2d} (skipped at inference),
 max-pool~$2{\times}2$, ReLU; flatten to $320$, \texttt{fc1}~($320{\to}50$),
 ReLU, \texttt{fc2}~($50{\to}10$), log-softmax. The eight learnable
@@ -410,6 +469,18 @@ synth ($N{=}1024$, $1024{\to}1024$) & 3.4153 & 0.5310 & $6.43\times$ \\
 
 \begin{figure}[htbp]
 \centering
+\includegraphics[width=\linewidth]{figs/linear_bars.png}
+\caption{Tiled-GEMM speedup over naive at each benchmarked linear
+shape. Both LeNet fc layers at batch~1 are break-even or worse
+(the output tile is at most $1\times50$, most of each
+$16\times16$ block idles); batch-64 \texttt{fc1} and the
+$1024\times1024\times1024$ synthetic case are where
+shared-memory reuse actually pays.}
+\label{fig:linear-bars}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
 \includegraphics[width=\linewidth]{figs/gemm_sweep.png}
 \caption{Tiled-GEMM speedup over the naive kernel as the batch
 dimension $N$ sweeps from $1$ to $1024$ at a fixed
@@ -438,6 +509,16 @@ forward $N{=}64$  & 0.4601 & 0.4351 & $1.06\times$ \\
 \end{tabular}
 \end{center}
 \end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figs/e2e_bars.png}
+\caption{End-to-end LeNet forward pass, naive vs tiled at batch~1
+and batch~64 on RTX~4090. The tiled \texttt{fc1} win carries through
+to a $1.21\times$ end-to-end speedup at batch~1; the margin narrows
+at batch~64 because the tiled-conv regression is of comparable scale.}
+\label{fig:e2e-bars}
+\end{figure}
 
 The tiled convolution kernel is a slight regression at every
 LeNet-scale shape. The naive kernel issues
@@ -516,6 +597,65 @@ example by fusing \texttt{conv+bias+pool+ReLU} into a single kernel
 --- is the biggest remaining end-to-end lever and is discussed in
 Section~\ref{sec:discussion}.
 
+\subsection{Kernel Resource Usage and Occupancy}
+\label{sec:kernel-resource}
+The proposal named Nsight Compute as the profiling tool. In the
+RunPod container used for all measurements, Nsight Compute's hardware
+performance-counter interface is blocked (\texttt{ERR\_NVGPUCTRPERM},
+gated by the \texttt{NVreg\_RestrictProfilingToAdminUsers} driver
+parameter that is not configurable from an unprivileged container),
+so the timing-side substitute is the \texttt{cudaEvent} harness
+already described. Static kernel characterization, however, does not
+require counter access: \texttt{nvcc -Xptxas=-v} reports registers,
+shared memory and spill slots at compile time, and the launch bounds
+are fixed in the kernel sources. Table~\ref{tab:kernel-resource}
+collects both for each kernel as compiled for \texttt{sm\_89}, and
+computes the resulting theoretical occupancy by hand against the
+RTX~4090's limits (1536 threads/SM, 64K 32-bit registers/SM,
+\raisebox{0pt}[0pt][0pt]{\raisebox{0pt}{\texttildelow}}99KB
+shared memory/SM, 16 blocks/SM).
+
+\begin{table}[tb]
+\caption{Per-kernel static resource usage and theoretical occupancy on
+RTX~4090 (compute capability 8.9). Dynamic shared-memory columns are
+reported for the LeNet shapes ($5{\times}5$ filter for conv2d\_tiled,
+$C{=}10$ for log\_softmax).}
+\label{tab:kernel-resource}
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l c r r r r@{}}
+\toprule
+Kernel & Block & Regs & Static & Dyn. & Occ.\\
+       &       &      & smem   & smem & \\
+\midrule
+conv2d\_naive      & $16{\times}16$ & 39 & 0      & 0      & 100\% \\
+conv2d\_tiled      & $16{\times}16$ & 40 & 0      & 1600\,B & 100\% \\
+linear\_naive      & $256$          & 38 & 0      & 0      & 100\% \\
+linear\_tiled      & $16{\times}16$ & 37 & 2048\,B & 0      & 100\% \\
+max\_pool2d\_naive & $16{\times}16$ & 20 & 0      & 0      & 100\% \\
+relu\_naive        & $256$          & 8  & 0      & 0      & 100\% \\
+log\_softmax\_naive & $16$          & 15 & 0      & 64\,B  & 17\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+All six of the compute-heavy kernels reach the theoretical 100\%
+occupancy ceiling: the regs-per-thread budget for a 256-thread block
+is \(64\text{K}/256=256\) registers, and every kernel uses
+significantly fewer ($\le$40), so six full blocks (1536 threads, the
+thread-count ceiling) fit on each SM. No kernel spills and no kernel
+allocates a stack frame. This is an important reading of the
+throughput numbers in Section~IV.B: the naive-vs-tiled delta at
+LeNet scale is not an occupancy story but a memory-access-pattern
+story, exactly as the per-kernel discussion there describes. The
+outlier is \texttt{log\_softmax\_naive} at 17\% occupancy, because it
+launches one block per row with \texttt{next\_pow2}$(C)=16$ threads
+for a 10-class output; the 16-block/SM ceiling is hit first. At
+LeNet's batch-1 output of a single 1\,$\times$\,10 row the kernel
+runs at $\sim$1\,\textmu s and is not worth specializing further.
+
 \subsection{Case Study: Matching Numerics Against cuDNN}
 Reaching the stretch tier surfaced a numerical issue that is easy to
 miss and worth calling out. Ada Lovelace GPUs (compute capability~8.9,
@@ -554,7 +694,25 @@ one extra subtract per element) so that the end-to-end diff against
 PyTorch is apples-to-apples. Hardware moved from a T4 on Colab to an
 RTX~4090 on RunPod for the development-loop reasons noted above; the
 kernels compile for compute capabilities 75/80/86/89 and remain
-portable to the original T4 target.
+portable to the original T4 target. Performance measurement uses
+the proposal's Nsight Compute plan is only partially realized, for
+container-permission reasons detailed at the top of
+Section~\ref{sec:kernel-resource}: the static half (registers,
+shared memory, launch bounds, theoretical occupancy) is reproduced
+via \texttt{nvcc -Xptxas=-v} and hand-computed occupancy in
+Table~\ref{tab:kernel-resource}, and the timing half is covered by
+the 200-rep \texttt{cudaEvent} harness in \texttt{bench.cu}, which
+at LeNet scale resolves the $\sim\!1\,\mu s$ differences between
+variants seen in the tables above. The two hardware-counter readouts
+that Nsight Compute would have added --- SM pipe utilization and
+DRAM throughput per kernel --- are not reported. The stretch-tier goal named in the proposal (``meaningful
+speedup toward cuDNN on convolution throughput'') was not achieved
+in the direction originally intended --- at LeNet scale our direct
+kernel beats cuDNN by $7{-}25\times$ because of cuDNN's fixed
+per-launch overhead, not because of any algorithmic advantage on our
+side. The cuDNN comparison is therefore reported as a calibration
+baseline and a case study in matching numerics (Section~IV.D) rather
+than as a throughput target that was closed.
 
 \section{Discussion and Summary}
 \label{sec:discussion}
@@ -594,22 +752,42 @@ kernel is correct and the tile geometry is reasonable --- but that
 the target workload does not actually exercise the optimization the
 project name suggests.
 
-Given more time, the natural next step is closing the gap to cuDNN
-on larger convolution shapes where its dispatch overhead is
-amortized. At LeNet scale the comparison favors the hand-written
-direct kernels --- cuDNN's per-launch fixed cost ($\sim\!70\,\mu s$
-on this platform) exceeds the entire convolution it is dispatching
---- but on the $32{\to}64$, $64\times64$ synthetic shape cuDNN
-already pulls ahead, and on production-scale convolutions (hundreds
-of channels, large spatial extents) its performance rests on
-Winograd-style algorithmic reformulations for $3\times3$ and
-$5\times5$ filters~\cite{lavingray2016}, Tensor-Core mixed-precision
-paths on Ampere and later, and heavily hand-tuned kernels per shape.
-A direct-convolution kernel like ours has no access to any of that.
-A productive continuation would replace the direct convolution with
-an \texttt{im2col} plus GEMM formulation, reusing our tiled GEMM,
-and benchmark the resulting pipeline against cuDNN on the same
-shapes. A second promising direction is operator
+Third, the cuDNN comparison is best read as a calibration of where
+the direct-convolution formulation stops being the right choice, not
+as a throughput race this project could have won. cuDNN's fixed
+per-launch cost ($\sim\!70\,\mu s$ on this platform) exceeds the
+entire LeNet-scale convolution it is dispatching, so at our target
+shapes the hand-written direct kernel wins by $7{-}25\times$; but on
+the $32{\to}64$, $64\times64$ synthetic shape cuDNN already overtakes
+our kernel, and at production-scale convolutions the gap would
+continue to widen for reasons that are structural rather than
+tuning-effort questions. First, algorithm: cuDNN selects
+Winograd-family reformulations for $3\times3$ and $5\times5$ filters
+that cut the arithmetic count by a factor of two or more compared to
+the direct formulation~\cite{lavingray2016}; our kernels implement
+the textbook convolution and cannot recover that arithmetic.
+Second, hardware path: on Ada Lovelace the FP16/TF32 tensor cores
+deliver roughly an order of magnitude more throughput than the FP32
+CUDA cores our kernels are restricted to, and cuDNN can dispatch to
+them under permissive math modes (we intentionally disabled that to
+preserve numerical parity; see Section~IV.D). Third, shape
+specialization: cuDNN ships a library of hand-tuned kernels selected
+by heuristic per $(C_{\text{in}}, C_{\text{out}}, H, W, K)$ tuple,
+while this project has a single generic tile geometry intended to
+run on every shape. Fourth, memory layout: vectorized NHWC paths can
+exploit 128-bit loads that NCHW cannot, and cuDNN is free to
+transpose into whichever layout wins for a given shape; we stay in
+NCHW throughout to match PyTorch byte-for-byte. Each of these is a
+meaningful project on its own; the comparison in
+Table~\ref{tab:throughput-conv} is therefore presented as a
+reference point that establishes the crossover shape, not as a
+stretch-tier goal that was reached.
+
+The natural next step at the scope of this project is not any of the
+above but \texttt{im2col} plus GEMM --- a data rearrangement that
+turns convolution into a matmul and reuses our existing tiled GEMM,
+giving a third \texttt{conv2d} variant to compare without writing a
+new compute kernel. A second promising direction is operator
 fusion: the current pipeline has ten kernel launches per image, and
 \texttt{conv+bias+ReLU} and \texttt{conv+bias+pool+ReLU} are natural
 fusion candidates that would shrink launch overhead and the

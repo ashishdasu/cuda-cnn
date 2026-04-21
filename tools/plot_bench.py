@@ -3,11 +3,12 @@
 Usage:
     python3 tools/plot_bench.py <bench.csv> <out_dir>
 
-Produces four PNGs:
+Produces five PNGs:
     1. conv_bars.png     — tiled and cuDNN speedup vs naive per conv shape.
     2. linear_bars.png   — tiled speedup vs naive per linear shape.
     3. gemm_sweep.png    — tiled-GEMM speedup vs batch N at a 1024x1024 problem.
     4. e2e_breakdown.png — per-kernel contribution to the N=1 forward pass.
+    5. e2e_bars.png      — naive vs tiled end-to-end forward pass ms + speedup.
 
 No seaborn, no pandas — matplotlib only. Speedup plots (not raw-ms bars)
 because ms values span two orders of magnitude across shapes and log-scale
@@ -204,6 +205,60 @@ def plot_e2e_breakdown(out_path: Path) -> None:
     plt.close(fig)
 
 
+def plot_e2e_bars(rows: list[dict[str, str]], out_path: Path) -> None:
+    """End-to-end forward-pass naive vs tiled raw-ms bars at each N,
+    with speedup annotated above each tiled bar. Raw ms is fine here
+    because the two forward-pass shapes sit within 3x of each other."""
+    fwd_rows = [r for r in rows if r["category"] == "fwd"]
+    shapes: list[str] = []
+    for r in fwd_rows:
+        if r["shape"] not in shapes:
+            shapes.append(r["shape"])
+
+    variants = ["naive", "tiled"]
+    width = 0.35
+    x = list(range(len(shapes)))
+
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    variant_bars: dict[str, list[float]] = {}
+    for i, variant in enumerate(variants):
+        times = []
+        for shape in shapes:
+            match = [r for r in fwd_rows
+                     if r["shape"] == shape and r["variant"] == variant]
+            times.append(float(match[0]["time_ms"]) if match else 0.0)
+        variant_bars[variant] = times
+        offsets = [xi + (i - 0.5) * width for xi in x]
+        bars = ax.bar(offsets, times, width, label=variant)
+        for bar, v in zip(bars, times):
+            ax.annotate(f"{v:.3f}",
+                        (bar.get_x() + bar.get_width() / 2, v),
+                        textcoords="offset points", xytext=(0, 2),
+                        ha="center", fontsize=7)
+
+    for i, shape in enumerate(shapes):
+        naive_t = variant_bars["naive"][i]
+        tiled_t = variant_bars["tiled"][i]
+        if tiled_t > 0:
+            speedup = naive_t / tiled_t
+            ax.annotate(f"{speedup:.2f}x",
+                        (i + 0.5 * width, tiled_t),
+                        textcoords="offset points", xytext=(0, 14),
+                        ha="center", fontsize=8, color="tab:green",
+                        fontweight="bold")
+
+    ax.set_ylabel("Per-invocation time (ms)")
+    ax.set_title("End-to-end LeNet forward pass: naive vs tiled (RTX 4090)")
+    ax.set_xticks(x)
+    ax.set_xticklabels([s.replace("end-to-end forward ", "") for s in shapes],
+                       fontsize=9)
+    ax.legend(loc="upper left")
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: plot_bench.py <bench.csv> <out_dir>", file=sys.stderr)
@@ -216,6 +271,7 @@ def main() -> int:
     plot_linear_bars(rows, out_dir / "linear_bars.png")
     plot_gemm_sweep(rows, out_dir / "gemm_sweep.png")
     plot_e2e_breakdown(out_dir / "e2e_breakdown.png")
+    plot_e2e_bars(rows, out_dir / "e2e_bars.png")
     print("wrote:", *sorted(out_dir.glob("*.png")))
     return 0
 
