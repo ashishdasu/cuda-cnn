@@ -3,12 +3,15 @@
 Usage:
     python3 tools/plot_bench.py <bench.csv> <out_dir>
 
-Produces five PNGs:
+Produces six PNGs:
     1. conv_bars.png     — tiled and cuDNN speedup vs naive per conv shape.
     2. linear_bars.png   — tiled speedup vs naive per linear shape.
     3. gemm_sweep.png    — tiled-GEMM speedup vs batch N at a 1024x1024 problem.
     4. e2e_breakdown.png — per-kernel contribution to the N=1 forward pass.
     5. e2e_bars.png      — naive vs tiled end-to-end forward pass ms + speedup.
+    6. fused_bars.png    — three-kernel (naive / tiled) vs single fused kernel
+                           for the conv+bias+ReLU+pool stage, raw-us bars with
+                           speedup annotated.
 
 No seaborn, no pandas — matplotlib only. Speedup plots (not raw-ms bars)
 because ms values span two orders of magnitude across shapes and log-scale
@@ -259,6 +262,71 @@ def plot_e2e_bars(rows: list[dict[str, str]], out_path: Path) -> None:
     plt.close(fig)
 
 
+def plot_fused_bars(rows: list[dict[str, str]], out_path: Path) -> None:
+    """Grouped bar chart: for each shape, show the naive three-kernel time,
+    the tiled three-kernel time, and the single fused-kernel time in
+    microseconds. Speedup vs naive three-call is annotated in green above
+    the fused bar so the reader can read the win/loss per shape at a
+    glance. The story the chart tells is shape-dependent: fusion wins
+    when launch overhead dominates (small, batch-1), breaks even or
+    loses when the SMs are starved by a too-small fused kernel."""
+    fused_rows = [r for r in rows if r["category"] == "fused"]
+    shapes: list[str] = []
+    for r in fused_rows:
+        if r["shape"] not in shapes:
+            shapes.append(r["shape"])
+
+    variants = ["naive", "tiled", "fused"]
+    colors = {"naive": "tab:blue", "tiled": "tab:orange", "fused": "tab:green"}
+    width = 0.27
+    x = list(range(len(shapes)))
+
+    fig, ax = plt.subplots(figsize=(9.5, 4.6))
+    time_by_variant: dict[str, list[float]] = {}
+    for i, variant in enumerate(variants):
+        times_us = []
+        for shape in shapes:
+            match = [r for r in fused_rows
+                     if r["shape"] == shape and r["variant"] == variant]
+            times_us.append(float(match[0]["time_ms"]) * 1000.0 if match else 0.0)
+        time_by_variant[variant] = times_us
+        offsets = [xi + (i - 1) * width for xi in x]
+        bars = ax.bar(offsets, times_us, width,
+                      label=("naive conv+ReLU+pool" if variant == "naive"
+                             else "tiled conv+ReLU+pool" if variant == "tiled"
+                             else "fused kernel"),
+                      color=colors[variant])
+        for bar, v in zip(bars, times_us):
+            ax.annotate(f"{v:.1f}",
+                        (bar.get_x() + bar.get_width() / 2, v),
+                        textcoords="offset points", xytext=(0, 2),
+                        ha="center", fontsize=7)
+
+    for i, shape in enumerate(shapes):
+        naive_t = time_by_variant["naive"][i]
+        fused_t = time_by_variant["fused"][i]
+        if fused_t > 0:
+            speedup = naive_t / fused_t
+            color = "tab:green" if speedup >= 1.0 else "tab:red"
+            ax.annotate(f"{speedup:.2f}x",
+                        (i + width, fused_t),
+                        textcoords="offset points", xytext=(0, 16),
+                        ha="center", fontsize=9, color=color,
+                        fontweight="bold")
+
+    ax.set_ylabel("Stage time ($\\mu$s)")
+    ax.set_title("Conv + bias + ReLU + pool: three launches vs one fused kernel"
+                 " (RTX 4090)")
+    ax.set_xticks(x)
+    ax.set_xticklabels([_short_shape(s).replace(" stage", "") for s in shapes],
+                       fontsize=7)
+    ax.legend(loc="upper left", fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: plot_bench.py <bench.csv> <out_dir>", file=sys.stderr)
@@ -272,6 +340,7 @@ def main() -> int:
     plot_gemm_sweep(rows, out_dir / "gemm_sweep.png")
     plot_e2e_breakdown(out_dir / "e2e_breakdown.png")
     plot_e2e_bars(rows, out_dir / "e2e_bars.png")
+    plot_fused_bars(rows, out_dir / "fused_bars.png")
     print("wrote:", *sorted(out_dir.glob("*.png")))
     return 0
 

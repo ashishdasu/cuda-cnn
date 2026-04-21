@@ -387,6 +387,7 @@ GPU forward 10k tiled & all 10\,000 MNIST (argmax 100\%) & $1.91\mathrm{e}{-}5$ 
 \end{table}
 
 \subsection{Throughput}
+\label{sec:throughput}
 All timings below are CUDA-event measurements collected by
 \texttt{tools/bench.cu}: each kernel is invoked with a handful of
 untimed warmup iterations, then repeated $200$ times (or $50$ times
@@ -593,9 +594,123 @@ activations. The tiled pipeline comes out $1.21\times$ faster at
 batch~1 and $1.06\times$ faster at batch~64: the tiled \texttt{fc1}
 win outweighs the small tiled-conv regression at LeNet scale, but
 not by a large margin. Shrinking the ten-launch overhead --- for
-example by fusing \texttt{conv+bias+pool+ReLU} into a single kernel
---- is the biggest remaining end-to-end lever and is discussed in
-Section~\ref{sec:discussion}.
+example by fusing \texttt{conv+bias+ReLU+pool} into a single kernel
+--- is the biggest remaining end-to-end lever and is measured
+directly in Section~\ref{sec:fusion}.
+
+\subsection{Kernel Fusion: conv+bias+ReLU+pool}
+\label{sec:fusion}
+Section~\ref{sec:throughput} identifies launch overhead as the
+biggest end-to-end lever. The most obvious fusion target is the
+\texttt{conv $\to$ bias $\to$ ReLU $\to$ pool} block that runs
+twice in LeNet: three separate kernel launches become one, and the
+intermediate activation tensors are never materialized in global
+memory.
+Figure~\ref{fig:fusion-concept} sketches the memory-traffic story.
+The unfused path writes the full post-conv activation to DRAM, reads
+it back to apply ReLU in place, then reads again for pooling --- three
+launch latencies plus two round-trips through global memory for data
+that is consumed immediately. The fused kernel keeps the input patch
+in dynamic shared memory, accumulates four conv outputs per thread
+(the receptive field of one pool output), applies the bias, ReLU, and
+2$\times$2 max in registers, and writes only the pool output to DRAM.
+
+\begin{figure}[tb]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    tnode/.style={draw, rectangle, rounded corners=1pt, minimum height=5mm,
+                  minimum width=11mm, font=\scriptsize, inner sep=2pt,
+                  fill=gray!15},
+    kern/.style={draw, rectangle, minimum height=5mm, minimum width=16mm,
+                 font=\scriptsize\tt, inner sep=2pt, fill=blue!8},
+    dram/.style={font=\scriptsize\itshape, text=gray!55},
+    ar/.style={-{Latex[length=1.6mm,width=1.2mm]}, semithick},
+    node distance=3mm,
+]
+\node[tnode] (in1) {input};
+\node[kern, right=of in1] (c1) {conv};
+\node[tnode, right=of c1] (a1) {act};
+\node[kern, right=of a1] (r1) {ReLU};
+\node[tnode, right=of r1] (a2) {act};
+\node[kern, right=of a2] (p1) {pool};
+\node[tnode, right=of p1] (o1) {pool};
+\draw[ar] (in1) -- (c1);
+\draw[ar] (c1) -- (a1);
+\draw[ar] (a1) -- (r1);
+\draw[ar] (r1) -- (a2);
+\draw[ar] (a2) -- (p1);
+\draw[ar] (p1) -- (o1);
+\node[dram, below=1.5mm of a1, align=center] {DRAM\\write};
+\node[dram, below=1.5mm of a2, align=center] {DRAM\\write};
+
+\node[tnode, below=12mm of in1] (in2) {input};
+\node[kern, right=16mm of in2, minimum width=42mm, fill=green!10] (f) {conv+bias+ReLU+pool};
+\node[tnode, right=of f] (o2) {pool};
+\draw[ar] (in2) -- (f);
+\draw[ar] (f) -- (o2);
+\node[dram, below=1.5mm of f, align=center] {shared mem + registers only};
+\end{tikzpicture}%
+}
+\caption{Memory-traffic view of the fused stage. Top: three separate
+kernels, with the full post-conv and post-ReLU activations written
+to and read from DRAM between launches. Bottom: one kernel, with
+intermediate values kept in shared memory and registers; only the
+pool output hits DRAM.}
+\label{fig:fusion-concept}
+\end{figure}
+
+The fused kernel uses a $4\times4$ pool-output block (16 threads
+producing a $4\times4$ pool tile, which corresponds to an
+$8\times8$ conv-output tile and a $(2\cdot4+K_h-1)\times(2\cdot4+K_w-1)$
+dynamic shared-memory input patch per input channel). At LeNet
+$K_h=K_w=5$ that is 576\,B per input-channel iteration. Each thread
+holds four conv accumulators in registers, adds the bias, applies
+ReLU, and reduces the $2\times2$ window to one pool output.
+Correctness is validated at the project-wide $1\times10^{-4}$
+tolerance against the three-step CPU reference sequence
+(\texttt{conv} $\to$ \texttt{ReLU} $\to$ \texttt{max\_pool2d}) on
+the two LeNet shapes, a batch-64 replica, and a non-pool-aligned
+synthetic shape; maximum observed error is
+$9.5\times10^{-6}$ on conv2 at batch~2, well inside tolerance.
+
+Figure~\ref{fig:fused-bars} measures the stage three ways:
+three-kernel-sequence (naive conv), three-kernel-sequence (tiled
+conv), and the single fused kernel, all on the same random tensors
+with warmup and 200-rep \texttt{cudaEvent} amortization.
+
+\begin{figure}[tb]
+\centering
+\includegraphics[width=\linewidth]{figs/fused_bars.png}
+\caption{Conv+bias+ReLU+pool stage time (\textmu s) on RTX 4090
+across four shapes. Bars compare the three-kernel baseline
+(\texttt{conv\_naive} $\to$ \texttt{ReLU} $\to$ \texttt{max\_pool2d},
+and the same with tiled conv) against the single fused kernel.
+Speedup over the naive three-kernel sequence is printed above the
+fused bar (green where the fused kernel wins, red where it loses).}
+\label{fig:fused-bars}
+\end{figure}
+
+At LeNet conv1 and $N{=}1$ --- the single-image \texttt{predict}
+regime --- the fused kernel runs at $5.1\,\mu s$ against
+$9.1\,\mu s$ for the naive three-call sequence, a
+$1.76\times$ win. At LeNet conv2 and $N{=}1$, fusion regresses to
+$0.40\times$ of naive: the $4\times4$ pool output of conv2 launches
+only $20$ blocks with $16$ threads each ($320$ threads total) on
+$128$ SMs, so the fused kernel under-subscribes the device and its
+heavier per-thread work (four conv accumulations per thread, plus
+the cooperative shared-memory load loop) dominates what was
+already a short naive-sequence stage. At batch~64 the fused kernel
+sits within 10--25\% of the naive baseline on either shape; the
+three launch latencies are now amortized across many output tiles,
+so the win from eliminating them is offset by the same small
+per-thread-overhead penalty.
+The takeaway is structural: fusion pays when launch overhead is
+the binding cost (small problems, tight dispatch loops) and costs
+when the fused kernel further starves the SMs of parallelism. At
+LeNet conv1 batch~1 both pressures line up in fusion's favour,
+and it delivers a real end-to-end saving on exactly the shape a
+\texttt{predict}-style deployment runs.
 
 \subsection{Kernel Resource Usage and Occupancy}
 \label{sec:kernel-resource}
