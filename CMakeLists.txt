@@ -77,6 +77,7 @@ if(CMAKE_CUDA_COMPILER)
         kernels/max_pool2d_naive.cu
         kernels/relu_naive.cu
         kernels/linear_naive.cu
+        kernels/log_softmax_naive.cu
     )
     set_target_properties(cnn_kernels PROPERTIES
         POSITION_INDEPENDENT_CODE ON
@@ -106,5 +107,11 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(test_linear_naive PRIVATE cnn_kernels cnn_host)
     add_test(NAME test_linear_naive
              COMMAND test_linear_naive
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    add_executable(test_log_softmax_naive tests/test_log_softmax_naive.cu)
+    target_link_libraries(test_log_softmax_naive PRIVATE cnn_kernels cnn_host)
+    add_test(NAME test_log_softmax_naive
+             COMMAND test_log_softmax_naive
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
