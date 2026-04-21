@@ -78,6 +78,7 @@ if(CMAKE_CUDA_COMPILER)
         kernels/relu_naive.cu
         kernels/linear_naive.cu
         kernels/log_softmax_naive.cu
+        kernels/forward.cu
     )
     set_target_properties(cnn_kernels PROPERTIES
         POSITION_INDEPENDENT_CODE ON
@@ -113,5 +114,14 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(test_log_softmax_naive PRIVATE cnn_kernels cnn_host)
     add_test(NAME test_log_softmax_naive
              COMMAND test_log_softmax_naive
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    # End-to-end: compose all five naive kernels through device-pointer
+    # launchers and validate the full pipeline vs PyTorch fixtures.
+    # Passing this is the minimum-tier correctness milestone.
+    add_executable(test_forward_gpu tests/test_forward_gpu.cu)
+    target_link_libraries(test_forward_gpu PRIVATE cnn_kernels cnn_host)
+    add_test(NAME test_forward_gpu
+             COMMAND test_forward_gpu
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
