@@ -66,3 +66,24 @@ target_link_libraries(test_reference PRIVATE cnn_host)
 add_test(NAME test_reference
          COMMAND test_reference
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# --- CUDA kernels ---------------------------------------------------------
+# Everything below is compiled only when nvcc is available. On macOS
+# dev hosts this block is skipped entirely so the CPU reference still
+# builds and tests cleanly.
+if(CMAKE_CUDA_COMPILER)
+    add_library(cnn_kernels STATIC
+        kernels/conv2d_naive.cu
+    )
+    set_target_properties(cnn_kernels PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        CUDA_SEPARABLE_COMPILATION ON)
+
+    # Per-kernel correctness test: diffs the GPU output against the
+    # host reference (cnn_host) under the project's 1e-4 tolerance.
+    add_executable(test_conv2d_naive tests/test_conv2d_naive.cu)
+    target_link_libraries(test_conv2d_naive PRIVATE cnn_kernels cnn_host)
+    add_test(NAME test_conv2d_naive
+             COMMAND test_conv2d_naive
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endif()
