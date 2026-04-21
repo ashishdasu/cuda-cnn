@@ -46,6 +46,18 @@ __global__ void linear_naive_kernel(const float* __restrict__ input,
 
 }  // namespace
 
+void linear_naive_device(const float* d_input,
+                         const float* d_weight,
+                         const float* d_bias,
+                         float* d_output,
+                         int N, int in_features, int out_features) {
+    const int total = N * out_features;
+    const int grid  = (total + BLOCK - 1) / BLOCK;
+    linear_naive_kernel<<<grid, BLOCK>>>(d_input, d_weight, d_bias, d_output,
+                                         N, in_features, out_features);
+    check(cudaGetLastError(), "linear_naive_kernel launch");
+}
+
 void linear_naive(const float* input,
                   const float* weight,
                   const float* bias,
@@ -69,11 +81,7 @@ void linear_naive(const float* input,
     check(cudaMemcpy(d_b,   bias,   b_elems  * sizeof(float), cudaMemcpyHostToDevice),
           "cudaMemcpy H2D(bias)");
 
-    const int total = N * out_features;
-    const int grid  = (total + BLOCK - 1) / BLOCK;
-    linear_naive_kernel<<<grid, BLOCK>>>(d_in, d_w, d_b, d_out,
-                                         N, in_features, out_features);
-    check(cudaGetLastError(), "linear_naive_kernel launch");
+    linear_naive_device(d_in, d_w, d_b, d_out, N, in_features, out_features);
     check(cudaDeviceSynchronize(), "linear_naive_kernel execution");
 
     check(cudaMemcpy(output, d_out, out_elems * sizeof(float), cudaMemcpyDeviceToHost),

@@ -60,6 +60,27 @@ __global__ void conv2d_naive_kernel(const float* __restrict__ input,
 
 }  // namespace
 
+void conv2d_naive_device(const float* d_input,
+                         const float* d_weight,
+                         const float* d_bias,
+                         float* d_output,
+                         int N,
+                         int C_in, int H_in, int W_in,
+                         int C_out, int Kh, int Kw) {
+    const int H_out = H_in - Kh + 1;
+    const int W_out = W_in - Kw + 1;
+
+    const dim3 block(TILE_W, TILE_H, 1);
+    const dim3 grid((W_out + TILE_W - 1) / TILE_W,
+                    (H_out + TILE_H - 1) / TILE_H,
+                    N * C_out);
+    conv2d_naive_kernel<<<grid, block>>>(d_input, d_weight, d_bias, d_output,
+                                         C_in, H_in, W_in,
+                                         C_out, Kh, Kw,
+                                         H_out, W_out);
+    check(cudaGetLastError(), "conv2d_naive_kernel launch");
+}
+
 void conv2d_naive(const float* input,
                   const float* weight,
                   const float* bias,
@@ -88,15 +109,8 @@ void conv2d_naive(const float* input,
     check(cudaMemcpy(d_b,   bias,   b_elems  * sizeof(float), cudaMemcpyHostToDevice),
           "cudaMemcpy H2D(bias)");
 
-    const dim3 block(TILE_W, TILE_H, 1);
-    const dim3 grid((W_out + TILE_W - 1) / TILE_W,
-                    (H_out + TILE_H - 1) / TILE_H,
-                    N * C_out);
-    conv2d_naive_kernel<<<grid, block>>>(d_in, d_w, d_b, d_out,
-                                         C_in, H_in, W_in,
-                                         C_out, Kh, Kw,
-                                         H_out, W_out);
-    check(cudaGetLastError(), "conv2d_naive_kernel launch");
+    conv2d_naive_device(d_in, d_w, d_b, d_out,
+                        N, C_in, H_in, W_in, C_out, Kh, Kw);
     check(cudaDeviceSynchronize(), "conv2d_naive_kernel execution");
 
     check(cudaMemcpy(output, d_out, out_elems * sizeof(float), cudaMemcpyDeviceToHost),

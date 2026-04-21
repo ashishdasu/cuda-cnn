@@ -27,5 +27,12 @@ void max_pool2d_naive(const float* input,
                       float* output,
                       int N, int C, int H_in, int W_in);
 
+// Device-pointer variant for the end-to-end forward pass. Both pointers
+// are device memory; no alloc/copy/sync. See conv2d_naive_device for
+// the shared rationale (keep activations on-device between layers).
+void max_pool2d_naive_device(const float* d_input,
+                             float* d_output,
+                             int N, int C, int H_in, int W_in);
+
 }  // namespace cuda
 }  // namespace cnn

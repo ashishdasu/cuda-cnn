@@ -44,5 +44,17 @@ void conv2d_naive(const float* input,
                   int C_in, int H_in, int W_in,
                   int C_out, int Kh, int Kw);
 
+// Device-pointer variant used by the end-to-end forward pass. All
+// pointers must refer to device memory. No allocation, no copies, no
+// per-call synchronize — the caller owns lifetime and streaming. Errors
+// from the launch surface via cudaGetLastError at the next check.
+void conv2d_naive_device(const float* d_input,
+                         const float* d_weight,
+                         const float* d_bias,
+                         float* d_output,
+                         int N,
+                         int C_in, int H_in, int W_in,
+                         int C_out, int Kh, int Kw);
+
 }  // namespace cuda
 }  // namespace cnn

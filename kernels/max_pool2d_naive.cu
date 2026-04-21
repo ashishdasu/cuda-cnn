@@ -54,6 +54,20 @@ __global__ void max_pool2d_naive_kernel(const float* __restrict__ input,
 
 }  // namespace
 
+void max_pool2d_naive_device(const float* d_input,
+                             float* d_output,
+                             int N, int C, int H_in, int W_in) {
+    const int H_out = H_in / 2;
+    const int W_out = W_in / 2;
+
+    const dim3 block(TILE_W, TILE_H, 1);
+    const dim3 grid((W_out + TILE_W - 1) / TILE_W,
+                    (H_out + TILE_H - 1) / TILE_H,
+                    N * C);
+    max_pool2d_naive_kernel<<<grid, block>>>(d_input, d_output, C, H_in, W_in, H_out, W_out);
+    check(cudaGetLastError(), "max_pool2d_naive_kernel launch");
+}
+
 void max_pool2d_naive(const float* input,
                       float* output,
                       int N, int C, int H_in, int W_in) {
@@ -70,12 +84,7 @@ void max_pool2d_naive(const float* input,
     check(cudaMemcpy(d_in, input, in_elems * sizeof(float), cudaMemcpyHostToDevice),
           "cudaMemcpy H2D(input)");
 
-    const dim3 block(TILE_W, TILE_H, 1);
-    const dim3 grid((W_out + TILE_W - 1) / TILE_W,
-                    (H_out + TILE_H - 1) / TILE_H,
-                    N * C);
-    max_pool2d_naive_kernel<<<grid, block>>>(d_in, d_out, C, H_in, W_in, H_out, W_out);
-    check(cudaGetLastError(), "max_pool2d_naive_kernel launch");
+    max_pool2d_naive_device(d_in, d_out, N, C, H_in, W_in);
     check(cudaDeviceSynchronize(), "max_pool2d_naive_kernel execution");
 
     check(cudaMemcpy(output, d_out, out_elems * sizeof(float), cudaMemcpyDeviceToHost),

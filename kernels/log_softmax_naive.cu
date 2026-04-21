@@ -75,6 +75,20 @@ __global__ void log_softmax_naive_kernel(const float* __restrict__ input,
 
 }  // namespace
 
+void log_softmax_naive_device(const float* d_input,
+                              float* d_output,
+                              int N, int C) {
+    if (C <= 0 || N <= 0) return;
+    if (C > 1024) {
+        throw std::runtime_error("log_softmax_naive_device: C > 1024 not supported "
+                                 "by this kernel; use a two-pass row reduction");
+    }
+    const int block = next_pow2(C);
+    const std::size_t shmem = block * sizeof(float);
+    log_softmax_naive_kernel<<<N, block, shmem>>>(d_input, d_output, C);
+    check(cudaGetLastError(), "log_softmax_naive_kernel launch");
+}
+
 void log_softmax_naive(const float* input,
                        float* output,
                        int N, int C) {
@@ -92,10 +106,7 @@ void log_softmax_naive(const float* input,
     check(cudaMemcpy(d_in, input, n_elems * sizeof(float), cudaMemcpyHostToDevice),
           "cudaMemcpy H2D(input)");
 
-    const int block = next_pow2(C);
-    const std::size_t shmem = block * sizeof(float);
-    log_softmax_naive_kernel<<<N, block, shmem>>>(d_in, d_out, C);
-    check(cudaGetLastError(), "log_softmax_naive_kernel launch");
+    log_softmax_naive_device(d_in, d_out, N, C);
     check(cudaDeviceSynchronize(), "log_softmax_naive_kernel execution");
 
     check(cudaMemcpy(output, d_out, n_elems * sizeof(float), cudaMemcpyDeviceToHost),

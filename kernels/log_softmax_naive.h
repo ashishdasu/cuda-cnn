@@ -34,5 +34,12 @@ void log_softmax_naive(const float* input,
                        float* output,
                        int N, int C);
 
+// Device-pointer variant for the end-to-end forward pass. Pointers are
+// device memory. Throws on C > 1024 (same constraint as the host
+// variant — the single-block-per-row layout caps at blockDim.x = 1024).
+void log_softmax_naive_device(const float* d_input,
+                              float* d_output,
+                              int N, int C);
+
 }  // namespace cuda
 }  // namespace cnn

@@ -30,5 +30,13 @@ void linear_naive(const float* input,
                   float* output,
                   int N, int in_features, int out_features);
 
+// Device-pointer variant for the end-to-end forward pass. All pointers
+// are device memory; no alloc/copy/sync.
+void linear_naive_device(const float* d_input,
+                         const float* d_weight,
+                         const float* d_bias,
+                         float* d_output,
+                         int N, int in_features, int out_features);
+
 }  // namespace cuda
 }  // namespace cnn

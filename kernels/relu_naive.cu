@@ -31,6 +31,13 @@ __global__ void relu_naive_kernel(float* __restrict__ data, std::size_t count) {
 
 }  // namespace
 
+void relu_naive_device(float* d_data, std::size_t count) {
+    if (count == 0) return;
+    const std::size_t grid = (count + BLOCK - 1) / BLOCK;
+    relu_naive_kernel<<<static_cast<unsigned>(grid), BLOCK>>>(d_data, count);
+    check(cudaGetLastError(), "relu_naive_kernel launch");
+}
+
 void relu_naive(float* data, std::size_t count) {
     if (count == 0) return;
 
@@ -39,9 +46,7 @@ void relu_naive(float* data, std::size_t count) {
     check(cudaMemcpy(d_buf, data, count * sizeof(float), cudaMemcpyHostToDevice),
           "cudaMemcpy H2D(data)");
 
-    const std::size_t grid = (count + BLOCK - 1) / BLOCK;
-    relu_naive_kernel<<<static_cast<unsigned>(grid), BLOCK>>>(d_buf, count);
-    check(cudaGetLastError(), "relu_naive_kernel launch");
+    relu_naive_device(d_buf, count);
     check(cudaDeviceSynchronize(), "relu_naive_kernel execution");
 
     check(cudaMemcpy(data, d_buf, count * sizeof(float), cudaMemcpyDeviceToHost),
