@@ -81,6 +81,7 @@ if(CMAKE_CUDA_COMPILER)
         kernels/forward.cu
         kernels/conv2d_tiled.cu
         kernels/linear_tiled.cu
+        kernels/conv2d_bias_relu_pool_fused.cu
     )
     set_target_properties(cnn_kernels PROPERTIES
         POSITION_INDEPENDENT_CODE ON
@@ -128,6 +129,14 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(test_linear_tiled PRIVATE cnn_kernels cnn_host)
     add_test(NAME test_linear_tiled
              COMMAND test_linear_tiled
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    add_executable(test_conv2d_bias_relu_pool_fused
+                   tests/test_conv2d_bias_relu_pool_fused.cu)
+    target_link_libraries(test_conv2d_bias_relu_pool_fused
+                          PRIVATE cnn_kernels cnn_host)
+    add_test(NAME test_conv2d_bias_relu_pool_fused
+             COMMAND test_conv2d_bias_relu_pool_fused
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
     # --- Optional cuDNN baseline (stretch tier) --------------------------

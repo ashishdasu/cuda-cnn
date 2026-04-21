@@ -12,15 +12,20 @@
 //   lin   — single linear / GEMM forward
 //   fwd   — composed LeNet forward pass (H2D + all 10 kernels + D2H)
 //   sweep — GEMM scaling sweep over N at fixed 1024x1024 problem
+//   fused — conv+bias+ReLU+pool stage: three kernels (naive/tiled) vs
+//           the single fused kernel.
 //
-// Variants: naive, tiled, cudnn.
+// Variants: naive, tiled, cudnn, fused.
 
 #include "host/weights.h"
+#include "kernels/conv2d_bias_relu_pool_fused.h"
 #include "kernels/conv2d_naive.h"
 #include "kernels/conv2d_tiled.h"
 #include "kernels/forward.h"
 #include "kernels/linear_naive.h"
 #include "kernels/linear_tiled.h"
+#include "kernels/max_pool2d_naive.h"
+#include "kernels/relu_naive.h"
 
 #ifdef CNN_HAS_CUDNN
 #include "kernels/conv2d_cudnn.h"
@@ -211,6 +216,64 @@ void bench_forward(const cnn::Weights& w, int N, int reps) {
     emit_row("fwd", label, "tiled", t_tiled, t_naive / t_tiled);
 }
 
+// Times the conv+bias+ReLU+pool stage three ways: (a) naive conv + relu
+// + pool as separate kernel launches, (b) tiled conv + relu + pool as
+// separate launches, (c) the single fused kernel. All three produce
+// the same pool-output tensor; this is the end-to-end-lever experiment
+// named in the report.
+void bench_fused_conv_stage(const ConvShape& s, int reps) {
+    const int H_conv = s.H_in - s.Kh + 1;
+    const int W_conv = s.W_in - s.Kw + 1;
+    const int H_pool = H_conv / 2;
+    const int W_pool = W_conv / 2;
+
+    const std::size_t in_n   = static_cast<std::size_t>(s.N) * s.C_in * s.H_in * s.W_in;
+    const std::size_t w_n    = static_cast<std::size_t>(s.C_out) * s.C_in * s.Kh * s.Kw;
+    const std::size_t b_n    = static_cast<std::size_t>(s.C_out);
+    const std::size_t conv_n = static_cast<std::size_t>(s.N) * s.C_out * H_conv * W_conv;
+    const std::size_t pool_n = static_cast<std::size_t>(s.N) * s.C_out * H_pool * W_pool;
+
+    float *d_in=nullptr, *d_w=nullptr, *d_b=nullptr;
+    float *d_conv=nullptr, *d_pool=nullptr;
+    check(cudaMalloc(&d_in,   in_n   * sizeof(float)), "malloc in");
+    check(cudaMalloc(&d_w,    w_n    * sizeof(float)), "malloc w");
+    check(cudaMalloc(&d_b,    b_n    * sizeof(float)), "malloc b");
+    check(cudaMalloc(&d_conv, conv_n * sizeof(float)), "malloc conv");
+    check(cudaMalloc(&d_pool, pool_n * sizeof(float)), "malloc pool");
+    fill_rand(d_in, in_n, 11);
+    fill_rand(d_w,  w_n,  12);
+    fill_rand(d_b,  b_n,  13);
+
+    const double t_naive_seq = time_ms([&]() {
+        cnn::cuda::conv2d_naive_device(d_in, d_w, d_b, d_conv,
+                                       s.N, s.C_in, s.H_in, s.W_in,
+                                       s.C_out, s.Kh, s.Kw);
+        cnn::cuda::relu_naive_device(d_conv, conv_n);
+        cnn::cuda::max_pool2d_naive_device(d_conv, d_pool,
+                                           s.N, s.C_out, H_conv, W_conv);
+    }, reps);
+    const double t_tiled_seq = time_ms([&]() {
+        cnn::cuda::conv2d_tiled_device(d_in, d_w, d_b, d_conv,
+                                       s.N, s.C_in, s.H_in, s.W_in,
+                                       s.C_out, s.Kh, s.Kw);
+        cnn::cuda::relu_naive_device(d_conv, conv_n);
+        cnn::cuda::max_pool2d_naive_device(d_conv, d_pool,
+                                           s.N, s.C_out, H_conv, W_conv);
+    }, reps);
+    const double t_fused = time_ms([&]() {
+        cnn::cuda::conv2d_bias_relu_pool_fused_device(
+            d_in, d_w, d_b, d_pool,
+            s.N, s.C_in, s.H_in, s.W_in, s.C_out, s.Kh, s.Kw);
+    }, reps);
+
+    emit_row("fused", s.name, "naive", t_naive_seq, 1.0);
+    emit_row("fused", s.name, "tiled", t_tiled_seq, t_naive_seq / t_tiled_seq);
+    emit_row("fused", s.name, "fused", t_fused,     t_naive_seq / t_fused);
+
+    cudaFree(d_in); cudaFree(d_w); cudaFree(d_b);
+    cudaFree(d_conv); cudaFree(d_pool);
+}
+
 // GEMM scaling sweep: fix in_f=out_f=1024, vary batch N. Produces the
 // data for the speedup-vs-problem-size curve in the report/slides.
 // At N=1 the tile mostly idles; at N=1024 the tiled kernel should be
@@ -282,6 +345,14 @@ int main(int argc, char** argv) {
         for (const auto& s : lins) bench_linear(s, /*reps=*/200);
 
         bench_gemm_sweep(/*reps=*/100);
+
+        const ConvShape fused_shapes[] = {
+            {"LeNet conv1 stage (N=1, 1->10, 5x5 @ 28x28)",     1,  1, 28, 28, 10, 5, 5},
+            {"LeNet conv2 stage (N=1, 10->20, 5x5 @ 12x12)",    1, 10, 12, 12, 20, 5, 5},
+            {"batch-64 conv1 stage (N=64, 1->10, 5x5 @ 28x28)", 64, 1, 28, 28, 10, 5, 5},
+            {"batch-64 conv2 stage (N=64, 10->20, 5x5 @ 12x12)",64,10, 12, 12, 20, 5, 5},
+        };
+        for (const auto& s : fused_shapes) bench_fused_conv_stage(s, /*reps=*/200);
 
         const cnn::Weights w = cnn::load_weights("weights/");
         bench_forward(w, /*N=*/1,  /*reps=*/200);
