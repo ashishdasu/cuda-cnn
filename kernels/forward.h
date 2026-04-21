@@ -43,5 +43,15 @@ void forward_naive_gpu(const Weights& w,
                        float* h_output,
                        int N);
 
+// Same end-to-end contract as forward_naive_gpu, but substitutes the
+// tiled shared-memory conv2d and linear kernels for their naive
+// counterparts. Pool, ReLU, and log_softmax remain the naive kernels
+// (those aren't tile-bound at LeNet scale, and the proposal's target
+// tier scopes the optimization to conv + GEMM).
+void forward_tiled_gpu(const Weights& w,
+                       const float* h_input,
+                       float* h_output,
+                       int N);
+
 }  // namespace cuda
 }  // namespace cnn

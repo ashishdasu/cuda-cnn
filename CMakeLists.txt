@@ -79,6 +79,8 @@ if(CMAKE_CUDA_COMPILER)
         kernels/linear_naive.cu
         kernels/log_softmax_naive.cu
         kernels/forward.cu
+        kernels/conv2d_tiled.cu
+        kernels/linear_tiled.cu
     )
     set_target_properties(cnn_kernels PROPERTIES
         POSITION_INDEPENDENT_CODE ON
@@ -114,6 +116,18 @@ if(CMAKE_CUDA_COMPILER)
     target_link_libraries(test_log_softmax_naive PRIVATE cnn_kernels cnn_host)
     add_test(NAME test_log_softmax_naive
              COMMAND test_log_softmax_naive
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    add_executable(test_conv2d_tiled tests/test_conv2d_tiled.cu)
+    target_link_libraries(test_conv2d_tiled PRIVATE cnn_kernels cnn_host)
+    add_test(NAME test_conv2d_tiled
+             COMMAND test_conv2d_tiled
+             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    add_executable(test_linear_tiled tests/test_linear_tiled.cu)
+    target_link_libraries(test_linear_tiled PRIVATE cnn_kernels cnn_host)
+    add_test(NAME test_linear_tiled
+             COMMAND test_linear_tiled
              WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
     # End-to-end: compose all five naive kernels through device-pointer

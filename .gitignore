@@ -55,3 +55,7 @@ venv/
 *.ncu-rep
 *.nsys-rep
 *.qdrep
+
+# Raw benchmark capture — reproducible from `build/bench --csv`, not a
+# submission artifact. Derived figures under report/figs/ are tracked.
+.bench-raw/
