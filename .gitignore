@@ -26,6 +26,11 @@ build/
 *.fdb_latexmk
 *.nav
 *.snm
+*.vrb
+
+# Presentation script — personal prep document, not a deliverable.
+slides/script.html
+slides/script.md
 
 # Proposal is a frozen submitted artifact — only the PDF is tracked.
 # The .tex is kept locally for reference but not versioned.
