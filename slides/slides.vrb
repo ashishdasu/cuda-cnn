@@ -1,0 +1,34 @@
+\frametitle{Demo: it actually works}
+\begin{columns}[T,onlytextwidth]
+  \begin{column}{0.52\textwidth}
+    \textbf{Single-image inference} (RTX 4090):
+    \begin{lstlisting}[language=bash,keywordstyle=\color{black},basicstyle=\ttfamily\scriptsize,xleftmargin=0pt,xrightmargin=10pt]
+$ build/predict --bulk 42 --variant tiled
+[predict] inference: 0.0312 ms
+[predict] top-3 (log-prob):
+  class 7 : -0.0001
+  class 2 : -9.4823
+  class 1 : -11.2144
+[predict] argmax = 7  (label = 7)  OK
+    \end{lstlisting}
+  \end{column}
+  \begin{column}{0.48\textwidth}
+    \textbf{Correctness: 11\,/\,11 tests pass.}
+
+    \vspace{0.4em}
+    \scriptsize
+    \begin{itemize}\setlength\itemsep{0.3em}
+      \item CPU reference (hand-computed)
+      \item \texttt{conv2d}: naive, tiled, cuDNN, fused
+      \item \texttt{max\_pool2d}, \texttt{ReLU},
+            \texttt{linear} (naive \& tiled),
+            \texttt{log\_softmax}
+      \item end-to-end forward pass
+    \end{itemize}
+  \end{column}
+  \end{columns}
+
+  \vspace{0.3em}
+  \centering\footnotesize Plus the 10\,000-image MNIST parity harness:
+  max abs err \textbf{1.91\,$\times$\,10$^{-5}$}, argmax-match on
+  every image, accuracy 97.93\%.

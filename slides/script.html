@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presentation Script — CUDA CNN</title>
+<style>
+  :root {
+    --nu-red:      #CC0000;
+    --nu-red-dark: #990000;
+    --nu-gray:     #4E4E4E;
+    --bg:          #F9F8F7;
+    --card-bg:     #FFFFFF;
+    --rule:        #E0DCDA;
+    --skip-bg:     #FFF5F5;
+    --skip-border: #CC0000;
+    --note-bg:     #F4F4F4;
+    --note-border: #AAAAAA;
+    --code-bg:     #F0EEEC;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 17px;
+    line-height: 1.7;
+    background: var(--bg);
+    color: #1a1a1a;
+    padding: 40px 20px 80px;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  .page-title {
+    text-align: center;
+    margin-bottom: 48px;
+    padding-bottom: 24px;
+    border-bottom: 2px solid var(--nu-red);
+  }
+  .page-title h1 {
+    font-size: 22px;
+    font-weight: bold;
+    color: var(--nu-red-dark);
+  }
+  .page-title p {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: var(--nu-gray);
+    margin-top: 6px;
+  }
+
+  .slide-card {
+    background: var(--card-bg);
+    border-left: 5px solid var(--nu-red);
+    border-radius: 3px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    margin-bottom: 44px;
+    overflow: hidden;
+  }
+
+  .slide-header {
+    background: var(--nu-gray);
+    color: white;
+    padding: 11px 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+  }
+  .slide-num   { font-size: 15px; font-weight: bold; color: #FFD0D0; flex-shrink: 0; }
+  .slide-title-text { font-size: 14px; font-weight: bold; color: white; flex-grow: 1; }
+  .time-budget { background: var(--nu-red); color: white; padding: 2px 9px; border-radius: 12px; font-size: 12px; flex-shrink: 0; }
+  .time-running { color: #CCCCCC; font-size: 12px; flex-shrink: 0; }
+
+  .slide-body { padding: 20px 26px 26px; }
+
+  .on-screen {
+    background: var(--note-bg);
+    border-left: 3px solid var(--note-border);
+    padding: 7px 13px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--nu-gray);
+    margin-bottom: 18px;
+    border-radius: 2px;
+  }
+  .on-screen strong { color: #1a1a1a; }
+
+  .script-text { font-size: 17px; line-height: 1.75; }
+  .script-text p { margin-bottom: 16px; }
+
+  /* bold = load-bearing sentence */
+  strong { color: var(--nu-red-dark); }
+
+  code {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: #2a0a0a;
+  }
+
+  .dont-skip {
+    background: var(--skip-bg);
+    border: 1px solid #F0CCCC;
+    border-left: 4px solid var(--skip-border);
+    border-radius: 2px;
+    padding: 10px 16px;
+    margin-top: 14px;
+  }
+  .dont-skip-label {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--nu-red);
+    letter-spacing: 0.1em;
+    margin-bottom: 7px;
+  }
+  .dont-skip ul { padding-left: 18px; font-size: 15px; line-height: 1.65; color: #2a1010; }
+  .dont-skip li { margin-bottom: 5px; }
+
+  .acronyms {
+    background: #F7F5F2;
+    border: 1px solid #DDD9D4;
+    border-left: 4px solid #AAAAAA;
+    border-radius: 2px;
+    padding: 9px 15px;
+    margin-top: 12px;
+  }
+  .acronyms-label {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    font-weight: bold;
+    color: #888;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+  }
+  .acronyms dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 2px 16px;
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .acronyms dt {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    color: #333;
+    white-space: nowrap;
+  }
+  .acronyms dd { color: #444; }
+  .acronyms .pron { color: #888; font-style: italic; }
+
+  .contingency {
+    background: var(--card-bg);
+    border: 1px solid var(--rule);
+    border-left: 5px solid #888;
+    border-radius: 3px;
+    padding: 18px 24px;
+    margin-top: 36px;
+  }
+  .contingency h3 {
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+    color: var(--nu-gray);
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+  }
+  .contingency p { font-size: 15px; margin-bottom: 10px; line-height: 1.6; }
+  .contingency strong { color: #333; }
+</style>
+</head>
+<body>
+
+<div class="page-title">
+  <h1>Presentation Script — A From-Scratch CUDA CNN</h1>
+  <p>CS5330 Pattern Recognition and Computer Vision &nbsp;·&nbsp; Ashish Dasu &nbsp;·&nbsp; April 2026 &nbsp;·&nbsp; target 15 min</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 1 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">01 / 09</span>
+    <span class="slide-title-text">Title</span>
+    <span class="time-budget">15 s</span>
+    <span class="time-running">→ 0:15</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> title, subtitle, author, course, professor, April 2026</div>
+    <div class="script-text">
+      <p>"Hi, I'm Ashish Dasu. This is my CS5330 final project: <strong>a from-scratch CUDA forward-pass inference engine for a LeNet-style MNIST network</strong> — no PyTorch, no cuDNN, no deep learning framework at runtime."</p>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>CUDA</dt><dd><span class="pron">"CUE-dah"</span> — Compute Unified Device Architecture. NVIDIA's parallel computing platform and programming model.</dd>
+        <dt>CNN</dt><dd><span class="pron">"see-en-en"</span> — Convolutional Neural Network.</dd>
+        <dt>MNIST</dt><dd><span class="pron">"EM-nist"</span> — Modified National Institute of Standards and Technology. Handwritten digit dataset, 70k images.</dd>
+        <dt>LeNet</dt><dd><span class="pron">"luh-NET"</span> — Named after Yann LeCun. Classic CNN from 1998, the architecture this project reimplements.</dd>
+        <dt>cuDNN</dt><dd><span class="pron">"cue-dee-en-en"</span> — CUDA Deep Neural Network library. NVIDIA's optimised primitives for deep learning.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 2 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">02 / 09</span>
+    <span class="slide-title-text">The network and how we verified it</span>
+    <span class="time-budget">2:45</span>
+    <span class="time-running">→ 3:00</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> two-row pipeline TikZ (x → conv1 → ReLU → pool → h₁ → conv2 → ReLU → pool → h₂ → flatten → FC1 → ReLU → FC2 → log-SM → ŷ) with tensor shapes; correctness stats below</div>
+    <div class="script-text">
+      <p>"Some context. In this class everyone built a LeNet-5 MNIST classifier in PyTorch — 97.93% test accuracy. When you call <code>model.to("cuda")</code>, PyTorch handles everything under the hood. I wanted to know what that actually means — so for the final I rebuilt the forward pass of that exact network with hand-written CUDA kernels. <strong>What does model.to("cuda") actually do?</strong> That's the question this project answers."</p>
+
+      <p>"The diagram shows the full pipeline — it walks left to right, then wraps to a second row. Two convolutional stages, each followed by a ReLU and a 2×2 max pool. Then flatten, two fully-connected layers, and log-softmax at the end. <strong>The shapes are on screen</strong> — the key thing to notice is that valid convolution with no padding shrinks the spatial dimensions at every stage, so by the time we hit flatten the whole feature map is just 320 numbers. Flatten is a no-op here — the tensor is already contiguous in memory, no data actually moves."</p>
+
+      <p>"<strong>Five distinct kernel types, ten kernel launches per forward pass.</strong> Activations stay on-device between launches — only the input is copied in, only the output is copied out. Weights are exported once from the trained PyTorch model as raw float32 binary files using <code>.numpy().tofile()</code>, then loaded at startup with a single <code>cudaMemcpy</code>. At runtime the engine links only against the CUDA runtime."</p>
+
+      <p>"Before writing a single optimized kernel I built a three-layer correctness oracle. Layer one: a plain C++ CPU reference for every kernel — nested loops, nothing clever. Layer two: each CUDA kernel diffed against the CPU reference on random inputs at <code>1e-4</code> absolute tolerance. Layer three: the full forward pass compared against PyTorch-exported log-softmax over all 10,000 MNIST test images. <strong>If anything drifted at any layer, the relevant test turned red immediately — I never had to debug 'the logits look wrong' from the top down.</strong>"</p>
+
+      <p>"<strong>End-to-end result: max absolute error 1.91×10⁻⁵ across all 10,000 images — 50× under tolerance. Argmax matches PyTorch on every single image. Accuracy identical to PyTorch eval mode at 97.93%.</strong>"</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>Valid conv (no padding) — 28×28 → 24×24 → 12×12 → 8×8 → 4×4 → flatten 320.</li>
+        <li>Flatten is a no-op — contiguous memory, no data movement.</li>
+        <li>Weights: <code>.numpy().tofile()</code> → raw float32 → <code>cudaMemcpy</code>. No PyTorch at runtime.</li>
+        <li>Three-layer oracle: CPU ref → per-kernel diff → 10k end-to-end.</li>
+        <li>1.91×10⁻⁵ max error, 100% argmax match, 97.93% accuracy.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>conv</dt><dd><span class="pron">"konv"</span> — Convolution. A sliding filter operation over a 2D input.</dd>
+        <dt>FC</dt><dd><span class="pron">"eff-see"</span> — Fully Connected layer. Every input neuron connects to every output neuron (a matrix multiply).</dd>
+        <dt>ReLU</dt><dd><span class="pron">"REH-loo"</span> — Rectified Linear Unit. Activation function: output = max(0, input).</dd>
+        <dt>log-softmax</dt><dd><span class="pron">"log soft-max"</span> — Softmax followed by log. Turns raw scores into log-probabilities that sum to log(1)=0.</dd>
+        <dt>cudaMemcpy</dt><dd><span class="pron">"cue-dah mem-copy"</span> — CUDA function that copies data between CPU (host) and GPU (device).</dd>
+        <dt>H2D / D2H</dt><dd><span class="pron">"aitch-to-dee / dee-to-aitch"</span> — Host-to-Device / Device-to-Host. Direction of a memory copy.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 3 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">03 / 09</span>
+    <span class="slide-title-text">Background: a CUDA kernel, in one slide</span>
+    <span class="time-budget">1:30</span>
+    <span class="time-running">→ 4:30</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> left — Grid→Block→Thread TikZ with annotations; right — stacked pyramid: Registers / Shared memory L1 / Global DRAM with cycle counts</div>
+    <div class="script-text">
+      <p>"Before the optimizations, one slide of background."</p>
+
+      <p>"A CUDA kernel launch is one program executed by thousands of threads simultaneously. Threads are grouped into <strong>blocks</strong> — up to 1024 threads per block — and blocks form a <strong>grid</strong>. The fundamental execution unit is a <strong>warp</strong>: 32 threads that run the same instruction in lockstep. Threads in the same block can cooperate through a small fast memory called <strong>shared memory</strong> and synchronize with <code>__syncthreads()</code>. Threads across blocks cannot interact at all."</p>
+
+      <p>"The pyramid on the right is what every design decision in this project comes back to. <strong>Registers are roughly 1 cycle — zero-latency if your value is there. Shared memory is roughly 20 cycles — it's an on-chip SRAM scratchpad, about 100 kilobytes per streaming multiprocessor on the RTX 4090. Global DRAM is roughly 400 cycles</strong> — it's 400 times slower than a register. The entire rest of this talk is one idea: move data from that bottom layer into the top two, reuse it, write results back once."</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>Warp = 32 threads in lockstep — matters for why 16-thread blocks are expensive.</li>
+        <li>Registers ~1 cy, shared memory ~20 cy, DRAM ~400 cy. Say the numbers.</li>
+        <li>Shared memory is block-local. Cross-block cooperation = impossible.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>SM</dt><dd><span class="pron">"ess-em"</span> — Streaming Multiprocessor. One independent compute unit on the GPU. RTX 4090 has 128 SMs.</dd>
+        <dt>warp</dt><dd><span class="pron">"worp"</span> — 32 threads that execute the same instruction simultaneously (SIMT).</dd>
+        <dt>SIMT</dt><dd><span class="pron">"sim-tee"</span> — Single Instruction Multiple Threads. CUDA's execution model.</dd>
+        <dt>DRAM</dt><dd><span class="pron">"dee-ram"</span> — Dynamic Random Access Memory. The GPU's main memory (24 GB on RTX 4090). ~400 cycle latency.</dd>
+        <dt>SRAM</dt><dd><span class="pron">"es-ram"</span> — Static Random Access Memory. What shared memory and L1 cache are made of. Much faster than DRAM.</dd>
+        <dt>L1</dt><dd><span class="pron">"ell-one"</span> — Level-1 cache. Closest cache to the compute units, ~128 KB per SM on RTX 4090.</dd>
+        <dt>__syncthreads()</dt><dd><span class="pron">"sync-threads"</span> — CUDA barrier. All threads in a block wait here until every thread has reached this point.</dd>
+        <dt>__shared__</dt><dd><span class="pron">"shared"</span> — CUDA keyword that allocates a variable in shared memory instead of registers or DRAM.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 4 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">04 / 09</span>
+    <span class="slide-title-text">Opt. 1 — tiled shared-memory convolution</span>
+    <span class="time-budget">3:00</span>
+    <span class="time-running">→ 7:30</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> left — 16×16 tile + halo TikZ diagram + explanation text; right — conv_bars.png (tiled and cuDNN speedup over naive per conv shape, RTX 4090)</div>
+    <div class="script-text">
+      <p>"First optimization: shared-memory tiled convolution. Let me start with how the naive kernel actually works, because it's the baseline everything is measured against."</p>
+
+      <p>"The naive conv kernel assigns <strong>one thread per output element</strong>. A thread knows its location in the output from its block and thread indices, then loops over all input channels and all filter positions — for conv1 that's 1 input channel × 5×5 = 25 multiply-accumulates per thread; for conv2 that's 10 channels × 5×5 = 250 MACs. The block is 16×16 = 256 threads, and the grid is sized to cover every output position."</p>
+
+      <p>"The tiled kernel changes the memory access pattern. <strong>One block now produces one 16×16 patch of the output.</strong> Before any thread computes a single MAC, all 256 threads in the block cooperate to load the input region they collectively need into shared memory. That region is the 16×16 output footprint plus a halo of K-minus-1 pixels on each side — for our 5×5 filter, K=5, so the halo is 4 pixels wide, making the loaded patch (16+4)² = 400 values per input channel. Then every thread reads exclusively from shared memory for its 25 MACs. <strong>The theoretical reuse factor is 25</strong> — each input value needed by one thread in the tile is also needed by up to 24 other threads, so without tiling it would be loaded from DRAM 25 times. With tiling, it's loaded once."</p>
+
+      <p>"Now look at the bar chart. <strong>The naive kernel wins at every LeNet shape.</strong> Tiled is slower, not faster. Why?"</p>
+
+      <p>"Working set size. Conv1 input is 1×28×28 — that's 784 float values, 3 kilobytes. The RTX 4090 has 128 kilobytes of L1 cache per streaming multiprocessor. Conv2 input is 10×12×12 — 1,440 floats, about 6 kilobytes. <strong>Both working sets fit in L1 with room to spare.</strong> The GPU's hardware prefetcher is already keeping those values on-chip between the 25 reuses. The cooperative load we wrote in CUDA just duplicates work the hardware was already doing, and adds a <code>__syncthreads()</code> barrier on top. We pay the overhead without getting the benefit."</p>
+
+      <p>"<strong>The tile strategy isn't wrong. The regime is wrong.</strong> Next slide shows where it actually pays off."</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>Naive: one thread per output element. blockIdx.z encodes (n, oc) — divide/mod per block not per thread.</li>
+        <li>Conv1: 1×5×5=25 MACs/thread. Conv2: 10×5×5=250 MACs/thread.</li>
+        <li>Tiled: 16×16 tile, cooperative load of (16+4)²=400 values/channel into shmem, then compute from shmem.</li>
+        <li>Reuse factor 25 — but 28×28=3KB and 12×12×10=6KB both fit in 128KB L1. Hardware already caches it.</li>
+        <li>Tiled adds sync barrier with zero benefit → loses at every LeNet shape.</li>
+        <li>Say "RTX 4090" out loud — this is the first chart.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>MAC</dt><dd><span class="pron">"mack"</span> — Multiply-Accumulate. One multiply + one add. The basic operation of a convolution or matrix multiply.</dd>
+        <dt>shmem</dt><dd><span class="pron">"ess-mem"</span> — Shorthand for shared memory.</dd>
+        <dt>blockIdx</dt><dd><span class="pron">"block-eye-dee-ex"</span> — CUDA built-in: the (x, y, z) index of the current thread block within the grid.</dd>
+        <dt>threadIdx</dt><dd><span class="pron">"thread-eye-dee-ex"</span> — CUDA built-in: the (x, y, z) index of the current thread within its block.</dd>
+        <dt>halo</dt><dd><span class="pron">"HAY-lo"</span> — The border region of extra input pixels a conv filter needs beyond the output tile boundary.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 5 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">05 / 09</span>
+    <span class="slide-title-text">Tiled GEMM: where tiling actually wins</span>
+    <span class="time-budget">1:45</span>
+    <span class="time-running">→ 9:15</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> left — text with speedup bullets (N=1→3.8×, N=64→5.0×, N=256→6.1×, N=1024→6.4×) + LeNet FC note; right — gemm_sweep.png (speedup vs batch N at 1024×1024)</div>
+    <div class="script-text">
+      <p>"So tiling lost for conv at LeNet scale. The same idea applied to the fully-connected layers — which are just matrix multiplies, weight matrix times input — tells a completely different story."</p>
+
+      <p>"The naive linear kernel assigns one thread per output element. Each thread does a dot product of one weight row against one input column — for FC1 that's 320 multiply-accumulates, for FC2 that's 50. Simple, one thread, one output, loop over the inner dimension."</p>
+
+      <p>"The tiled GEMM kernel assigns one 16×16 block to produce a 16×16 tile of the output matrix. <strong>Threads cooperatively load a 16×16 tile of the weight matrix and a 16×16 tile of the activation matrix into shared memory, accumulate partial dot-products, then advance to the next tile pair until the full inner-product dimension is covered.</strong> The reuse: a weight tile loaded once is used by 16 different output rows simultaneously. At large enough problems the weight matrix genuinely can't stay in L1 across all those reuses — shared memory is the only way to get it on-chip."</p>
+
+      <p>"At LeNet's actual FC sizes — FC1 is 50×320, FC2 is 10×50 — same story as conv: the matrix fits in L1, tiling adds overhead for zero benefit. Tiled is 1.06× and 1.01× over naive."</p>
+
+      <p>"But sweep to a realistic 1024×1024 weight matrix and vary batch size. <strong>At batch 1, tiled is already 3.8× faster</strong>. By batch 64 it's 5×, by batch 256 it's 6.1×, <strong>and batch 1024 hits 6.4×</strong>. The weight matrix at 1024×1024 is 4 megabytes — nowhere near L1. Loading a 16×16 tile once and reusing it across 16 output rows is a genuine DRAM-access reduction. <strong>Same kernel, same tile code, completely opposite result — the regime is the variable.</strong>"</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>Naive linear: one thread per output, one dot product. FC1=320 MACs, FC2=50 MACs.</li>
+        <li>Tiled: 16×16 block → 16×16 output tile. Load weight tile once, reuse across 16 output rows.</li>
+        <li>FC1 (50×320) and FC2 (10×50) are too small — L1 absorbs the reuse anyway. 1.06× and 1.01×.</li>
+        <li>1024×1024 = 4MB → can't fit in L1 → tiling actually saves DRAM reads. 3.8× → 6.4×.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>GEMM</dt><dd><span class="pron">"gem"</span> — General Matrix Multiply. The operation C = A × B. Fully-connected layers are GEMMs.</dd>
+        <dt>FC</dt><dd><span class="pron">"eff-see"</span> — Fully Connected. FC1: 320→50. FC2: 50→10.</dd>
+        <dt>inner product dimension</dt><dd>The shared dimension in a matrix multiply — e.g. the 1024 in (N×1024) × (1024×M). Larger = more reuse opportunity for tiling.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 6 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">06 / 09</span>
+    <span class="slide-title-text">Opt. 3 — conv + bias + ReLU + pool fused</span>
+    <span class="time-budget">2:45</span>
+    <span class="time-running">→ 12:00</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> left — unfused vs fused memory-traffic TikZ (conv→DRAM→ReLU→DRAM→pool vs single fused block, shmem+registers only); right — fused_bars.png</div>
+    <div class="script-text">
+      <p>"Third optimization: kernel fusion. The idea is to collapse three back-to-back launches — convolution, ReLU, max pooling — into one kernel that keeps everything on-chip."</p>
+
+      <p>"In the unfused path, the conv kernel writes a full activation tensor to DRAM. The ReLU kernel reads it back, applies max-with-zero, writes again. The pool kernel reads the ReLU'd activations and writes the pooled output. That's two full activation-sized round-trips through 400-cycle DRAM between three launches, plus three separate kernel launch overheads."</p>
+
+      <p>"The fused kernel eliminates all of that. <strong>The core design: one thread produces one pool output element.</strong> A pool output is the max of a 2×2 window of ReLU'd conv outputs — so each thread needs to compute four conv outputs, one per position in its 2×2 window. We keep those as <strong>four register floats</strong>, initialized to the bias so the bias add is free. Then we loop over input channels: for each channel, all threads in the block cooperate to load the input patch they collectively need into shared memory, sync, then each thread independently accumulates its four conv outputs from shared memory. <strong>No DRAM touched at all for the intermediates.</strong>"</p>
+
+      <p>"After the channel loop: <strong>ReLU all four accumulators in registers</strong>, take the max of the four — that's the 2×2 pool. <strong>One DRAM write</strong> per thread for the entire conv-bias-ReLU-pool sequence."</p>
+
+      <p>"Results: <strong>conv1 at batch 1, naive is 1.76× slower than fused.</strong> At 28×28 input with 10 output channels, the launch overhead and three DRAM round-trips dominated — the kernel barely had compute to do. Fusing wins."</p>
+
+      <p>"<strong>Conv2 at batch 1, fused is 0.40× naive — 2.5× slower.</strong> Conv2's pool output is 4×4 per output channel. With a 4×4 block, that's one block per output channel. With 20 output channels and batch 1, we launch 20 blocks of 16 threads total — 320 threads across a GPU with 128 streaming multiprocessors. One or two SMs have any work. The other 126 are completely idle. The three separate kernels at least launch larger grids that keep more SMs busy. <strong>Fusion eliminated DRAM round-trips but also strangled the grid size. You can't optimize one without knowing what it does to the other.</strong>"</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>Unfused: 2 DRAM round-trips + 3 launch overheads.</li>
+        <li>Fused: one thread = one pool output. 4 register accumulators (acc00/01/10/11), initialized to bias[oc].</li>
+        <li>Cooperative shmem load: (2×4+4)²=144 values/channel, 16 threads → each loads 9 elements.</li>
+        <li>After channel loop: ReLU 4 accumulators in registers → 2×2 max → one DRAM write.</li>
+        <li>POOL_TILE=4: fits conv2's 4×4 output exactly, tiles conv1's 12×12 with 3×3 grid.</li>
+        <li>conv1: 1.76× speedup (launch overhead was the bottleneck).</li>
+        <li>conv2: 2.5× SLOWER — 20 blocks × 16 threads = 320 threads on 128 SMs. GPU starved.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>POOL_TILE</dt><dd><span class="pron">"pool tile"</span> — Compile-time constant (=4) setting the block tile size for the fused kernel.</dd>
+        <dt>occupancy</dt><dd>Fraction of the GPU's maximum concurrent warps that are actually active. Higher = more work in flight to hide latency.</dd>
+        <dt>grid</dt><dd>The full 3D array of blocks launched by one kernel call. Grid size = total_outputs / block_size (rounded up).</dd>
+        <dt>kernel launch overhead</dt><dd>Fixed CPU-side cost (~5–10µs) to enqueue a kernel on the GPU, independent of how much work the kernel does.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 7 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">07 / 09</span>
+    <span class="slide-title-text">Resource usage and cuDNN reference</span>
+    <span class="time-budget">1:30</span>
+    <span class="time-running">→ 13:30</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> left — resource table (kernel / block / regs / smem, no occupancy column); right — e2e_bars.png (naive vs tiled end-to-end, RTX 4090)</div>
+    <div class="script-text">
+      <p>"The table on the left shows static resource usage per kernel — registers and shared memory from <code>nvcc -Xptxas=-v</code> at compile time. Hardware profiling counters were blocked on the machine we used, so this is what we had. The key reading: <strong>no kernel spills to local memory</strong>, and every 256-thread-block kernel hits theoretical 100% occupancy. The log-softmax block is only 16 threads — next power-of-two above our 10 output classes — which limits occupancy, but it runs in about 1.8 microseconds so it's not a bottleneck."</p>
+
+      <p>"The bar chart shows end-to-end forward pass: naive vs tiled. Tiled pipeline is 1.21× faster at batch 1, 1.25× at batch 64. Modest, because the FC layers are tiny and conv tiling regressed — these are two known results combining."</p>
+
+      <p>"For the stretch tier I wrapped cuDNN's convolution API. <strong>At batch 1, our naive direct convolution beats cuDNN</strong> — descriptor initialization and algorithm dispatch overhead per call dominates when the actual compute is microseconds. At larger synthetic shapes cuDNN pulls ahead, which is expected — it's selecting Winograd and implicit-GEMM algorithms that our direct kernel doesn't implement."</p>
+
+      <p>"One precision gotcha worth calling out: <strong>cuDNN on this GPU silently defaults to a reduced-precision format called TF32</strong>, which truncates the floating-point mantissa from 23 bits to 10 before multiplying. Our error against the CPU reference jumped to 5.3×10⁻³ — 50× over our tolerance — with no warning. The fix: pin the math type to true FP32. Error drops back to 2×10⁻⁶."</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li><code>nvcc -Xptxas=-v</code> at compile time: registers, smem, spills. No hardware counters needed.</li>
+        <li>log_softmax block=16 (next pow2 above 10 classes). Low occupancy but ~1.8µs — not a bottleneck.</li>
+        <li>cuDNN loses at batch=1 (descriptor overhead). Wins at large synthetic shapes (Winograd/implicit-GEMM). Say both.</li>
+        <li>TF32 = silent 50× tolerance violation. Fix: <code>CUDNN_FMA_MATH</code>.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>nvcc</dt><dd><span class="pron">"en-vee-see-see"</span> — NVIDIA CUDA Compiler. Compiles .cu files to GPU machine code.</dd>
+        <dt>ptxas / -Xptxas</dt><dd><span class="pron">"pee-tee-ex-ass"</span> — PTX Assembler, the CUDA low-level compiler stage. <code>-Xptxas=-v</code> prints register/smem usage per kernel.</dd>
+        <dt>PTX</dt><dd><span class="pron">"pee-tee-ex"</span> — Parallel Thread Execution. CUDA's intermediate assembly language.</dd>
+        <dt>TF32</dt><dd><span class="pron">"tee-eff-thirty-two"</span> — TensorFloat-32. NVIDIA format that truncates FP32's 23-bit mantissa to 10 bits before a multiply. Faster, less precise.</dd>
+        <dt>FMA</dt><dd><span class="pron">"eff-em-ay"</span> — Fused Multiply-Add. Single instruction doing a×b+c with one rounding. <code>CUDNN_FMA_MATH</code> forces true FP32 FMA on CUDA cores.</dd>
+        <dt>Ada Lovelace</dt><dd><span class="pron">"AY-dah LUV-lace"</span> — NVIDIA GPU architecture used in RTX 4090. Named after mathematician Ada Lovelace.</dd>
+        <dt>mantissa</dt><dd><span class="pron">"man-TISS-ah"</span> — The fractional part of a floating-point number. FP32 has 23 bits; TF32 cuts it to 10, reducing precision.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 8 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">08 / 09</span>
+    <span class="slide-title-text">Demo: it actually works</span>
+    <span class="time-budget">45 s</span>
+    <span class="time-running">→ 14:15</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> left — predict CLI output (MNIST test image 42, class 7, 31µs); right — 11/11 tests pass + 10k parity stats</div>
+    <div class="script-text">
+      <p>"Demo. Left side: <code>build/predict</code> on MNIST test image 42, tiled variant. Inference time: 31 microseconds total. Top prediction is class 7 with a log-probability of essentially zero — near-certainty. Ground truth is 7. Correct."</p>
+      <p>"Right: <strong>11 kernel-level tests, all passing</strong> — CPU reference diffs for every kernel, every variant. And the 10,000-image parity harness: max absolute error 1.91×10⁻⁵, argmax matches PyTorch on every image, accuracy 97.93%. <strong>The thing is correct and it's fast.</strong>"</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>31µs. Class 7. Correct.</li>
+        <li>11/11 tests. 10k parity. Both numbers, out loud.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>CLI</dt><dd><span class="pron">"see-ell-eye"</span> — Command Line Interface. The <code>build/predict</code> binary you run in a terminal.</dd>
+        <dt>argmax</dt><dd><span class="pron">"arg-max"</span> — The index of the largest value in a list. For our 10-class output, argmax = the predicted digit.</dd>
+        <dt>parity harness</dt><dd>A test that runs both implementations (CUDA and PyTorch) on the same inputs and checks their outputs match within tolerance.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SLIDE 9 -->
+<div class="slide-card">
+  <div class="slide-header">
+    <span class="slide-num">09 / 09</span>
+    <span class="slide-title-text">Discussion and reflection</span>
+    <span class="time-budget">45 s</span>
+    <span class="time-running">→ 15:00</span>
+  </div>
+  <div class="slide-body">
+    <div class="on-screen"><strong>On screen:</strong> four bullets, italic reflection sentence, "Thank you.", GitHub URL</div>
+    <div class="script-text">
+      <p>"Four takeaways. <strong>Tiling isn't default-on</strong> — it hurts at LeNet, wins 6.4× at large GEMM. The regime decides. <strong>Launch overhead is real</strong> — fusion bought 1.76× on conv1 and lost 2.5× on conv2, same kernel, opposite outcome. <strong>FP32 parity with cuDNN requires opt-ins</strong> — TF32 is on by default on Ada, breaks tolerance silently. <strong>The correctness oracle chain paid for itself</strong> — 11 per-kernel tests plus 10k end-to-end meant I chased throughput without ever debugging drifting logits."</p>
+      <p>"The biggest lesson: the optimization and the speedup are separate things. Every change I made was conceptually correct. Three of them empirically slowed LeNet. Having the CPU reference first and keeping parity green on every commit made that painless to discover."</p>
+      <p>"Code is at github.com/ashishdasu/cuda-cnn. Thanks for watching."</p>
+    </div>
+    <div class="dont-skip">
+      <div class="dont-skip-label">DON'T SKIP</div>
+      <ul>
+        <li>Name all four takeaways — they're the graded discussion.</li>
+        <li>"optimization ≠ speedup" — say it verbatim.</li>
+        <li>Say the GitHub URL.</li>
+      </ul>
+    </div>
+    <div class="acronyms">
+      <div class="acronyms-label">ACRONYMS &amp; PRONUNCIATIONS</div>
+      <dl>
+        <dt>oracle chain</dt><dd>The three-layer correctness hierarchy: CPU reference → per-kernel unit test → end-to-end parity harness. Each layer catches a different class of bug.</dd>
+        <dt>regime</dt><dd><span class="pron">"reh-ZHEEM"</span> — The operating conditions (problem size, hardware, batch size) under which a technique is being evaluated. Tiling wins in one regime, loses in another.</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ CONTINGENCIES -->
+<div class="contingency">
+  <h3>PACING CONTINGENCIES</h3>
+  <p><strong>Running long (hit slide 7 at 13:30 instead of 13:00):</strong> Cut slide 7 to two sentences: "ptxas shows no register spills. Naive beats cuDNN at batch=1 due to descriptor overhead; TF32 was a silent precision gotcha we fixed by pinning CUDNN_FMA_MATH." Cut slide 9 to just the four takeaway names and the closing line.</p>
+  <p><strong>Running short (hit slide 6 at 10:00):</strong> Add on slide 6: explain the channel-loop structure explicitly — "for each of the 10 input channels in conv2, the block loads 144 values into shared memory, does a __syncthreads(), then all 16 threads independently MAC their four output positions against that channel's filter patch, then __syncthreads() again before loading the next channel." Add on slide 7: walk through the log-softmax 3-pass reduction — max pass, then sum-exp(x−max) pass, then write x−max−log(sum). Mention the max-subtraction prevents exp() from overflowing to inf on large logits.</p>
+</div>
+
+</body>
+</html>

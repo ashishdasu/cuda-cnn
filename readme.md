@@ -91,6 +91,29 @@ built from `report/report.tex`).
 
 Demo video: TODO — URL will appear here once uploaded.
 
-## Group members
+## Author
 
-Solo project: Ashish Dasu (`dasu.a@northeastern.edu`).
+Ashish Dasu (`dasu.a@northeastern.edu`) — solo project.
+
+## Reflection
+
+The biggest lesson from this project was that "the optimization" and
+"the speedup" are separate things. Shared-memory tiling and kernel
+fusion are both textbook-correct ideas, and at LeNet's shapes both
+empirically made the network slower — tiled conv regressed against
+naive, and the fused conv+ReLU+pool kernel was 2.5× slower on conv2
+because the 4×4 output grid under-subscribed the GPU. Writing a CPU
+reference for every kernel first and keeping end-to-end PyTorch parity
+green on every commit meant I could chase throughput without ever
+debugging "the logits drifted" — the correctness oracle chain paid for
+itself many times over.
+
+## AI assistance disclosure
+
+Anthropic's Claude (Claude Code CLI) was used
+as a typing and formatting aid during this project — LaTeX boilerplate,
+matplotlib styling, and minor prose/comment cleanup. All architectural
+decisions, kernel designs, correctness methodology, benchmark
+measurements, and written analysis are my own; every line of CUDA was
+read and edited by me before it ran, and every commit in the git
+history is authored and reviewed by me.

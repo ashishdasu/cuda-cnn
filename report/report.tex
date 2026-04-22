@@ -93,6 +93,13 @@ from-scratch forward-pass implementation: the full weight set fits in
 a few tens of kilobytes and each kernel shape is small enough that
 hand-computed references can be built for unit testing.
 
+The practical case for GPU-accelerated CNN inference is established by
+Krizhevsky, Sutskever, and Hinton~\cite{krizhevsky2012}, whose AlexNet
+implementation demonstrated that hand-written CUDA convolution and
+fully-connected kernels on a pair of GTX 580s could achieve top-5
+accuracy on ImageNet far beyond the then-state-of-the-art; this work
+directly motivates the per-kernel CUDA approach taken here.
+
 On the GPU-kernel side, two lines of work inform the target-tier
 optimizations. Volkov and Demmel~\cite{volkov2008} characterized GPU
 memory bandwidth and arithmetic throughput and demonstrated how
@@ -109,46 +116,75 @@ which selects Winograd or implicit-GEMM algorithms per shape. Chetlur
 in the stretch tier as a throughput reference.
 
 \section{Methods}
+\label{sec:methods}
 
 \begin{figure*}[!t]
 \centering
 \begin{tikzpicture}[
-  tnode/.style={draw, semithick, rounded corners=1pt, fill=black!4,
-                minimum height=0.85cm, minimum width=0.95cm,
-                align=center, inner sep=2pt, font=\small},
-  shp/.style={font=\scriptsize\ttfamily, text=black!75},
-  opl/.style={font=\scriptsize\itshape, align=center, text=black!80,
-              inner sep=1pt},
-  ar/.style={-{Stealth[length=2.2mm,width=1.7mm]}, semithick},
+  tnode/.style={draw, semithick, fill=black!6, minimum height=8mm,
+                minimum width=13mm, align=center, inner sep=2pt,
+                font=\small\bfseries},
+  conv/.style={draw, semithick, rounded corners=2pt, fill=blue!14,
+               minimum height=8mm, minimum width=19mm,
+               align=center, inner sep=2pt, font=\small},
+  pool/.style={draw, semithick, rounded corners=2pt, fill=orange!18,
+               minimum height=8mm, minimum width=15mm,
+               align=center, inner sep=2pt, font=\small},
+  relu/.style={draw, semithick, rounded corners=2pt, fill=green!14,
+               minimum height=8mm, minimum width=11mm,
+               align=center, inner sep=2pt, font=\small},
+  fcop/.style={draw, semithick, rounded corners=2pt, fill=violet!16,
+               minimum height=8mm, minimum width=13mm,
+               align=center, inner sep=2pt, font=\small},
+  misc/.style={draw, semithick, rounded corners=2pt, fill=black!10,
+               minimum height=8mm, minimum width=15mm,
+               align=center, inner sep=2pt, font=\small},
+  shp/.style={font=\scriptsize\ttfamily, text=black!60},
+  ar/.style={-{Stealth[length=2.2mm,width=1.6mm]}, semithick},
+  node distance=5mm,
 ]
+  %% Row 1: input → conv stage 1 → h1 → conv stage 2 → h2
   \node[tnode] (x) {$\mathbf{x}$};
-  \node[shp, below=2pt of x] {1{\texttimes}28{\texttimes}28};
+  \node[shp, above=2pt of x] {1$\times$28$\times$28};
 
-  \node[tnode, right=1.85cm of x] (h1) {$\mathbf{h}_1$};
-  \node[shp, below=2pt of h1] {10{\texttimes}12{\texttimes}12};
+  \node[conv, right=of x]  (c1) {Conv1\\{\scriptsize 5$\times$5,10ch}};
+  \node[relu, right=of c1] (r1) {ReLU};
+  \node[pool, right=of r1] (p1) {Pool 2$\times$2};
+  \node[tnode, right=of p1] (h1) {$\mathbf{h}_1$};
+  \node[shp, above=2pt of h1] {10$\times$12$\times$12};
 
-  \node[tnode, right=1.85cm of h1] (h2) {$\mathbf{h}_2$};
-  \node[shp, below=2pt of h2] {20{\texttimes}4{\texttimes}4};
+  \node[conv, right=of h1]  (c2) {Conv2\\{\scriptsize 5$\times$5,20ch}};
+  \node[relu, right=of c2]  (r2) {ReLU};
+  \node[pool, right=of r2]  (p2) {Pool 2$\times$2};
+  \node[tnode, right=of p2] (h2) {$\mathbf{h}_2$};
+  \node[shp, above=2pt of h2] {20$\times$4$\times$4};
 
-  \node[tnode, right=1.4cm of h2] (v) {$\mathbf{v}$};
-  \node[shp, below=2pt of v] {320};
+  %% Row 2: flatten → FC1 → u → FC2 → log-softmax → ŷ
+  \node[misc, below=14mm of x] (fl) {Flatten};
+  \node[tnode, right=of fl]    (v)  {$\mathbf{v}$};
+  \node[shp, below=2pt of v]   {320};
+  \node[fcop, right=of v]      (fc1){FC1};
+  \node[relu, right=of fc1]    (r3) {ReLU};
+  \node[tnode, right=of r3]    (u)  {$\mathbf{u}$};
+  \node[shp, below=2pt of u]   {50};
+  \node[fcop, right=of u]      (fc2){FC2};
+  \node[misc, right=of fc2]    (sm) {log-SM};
+  \node[tnode, right=of sm]    (y)  {$\hat{\mathbf{y}}$};
+  \node[shp, below=2pt of y]   {10};
 
-  \node[tnode, right=1.55cm of v] (u) {$\mathbf{u}$};
-  \node[shp, below=2pt of u] {50};
+  %% Row 1 arrows
+  \foreach \a/\b in {x/c1, c1/r1, r1/p1, p1/h1,
+                     h1/c2, c2/r2, r2/p2, p2/h2}
+    \draw[ar] (\a) -- (\b);
 
-  \node[tnode, right=1.7cm of u] (y) {$\hat{\mathbf{y}}$};
-  \node[shp, below=2pt of y] {10};
+  %% Step-down h2 → Flatten
+  \draw[ar, rounded corners=5pt]
+    (h2.south) -- ++(0,-5mm) -| (fl.north);
 
-  \draw[ar] (x)  -- node[opl, above] {\texttt{conv1} $\to$ \texttt{pool} $\to$ \texttt{ReLU}} (h1);
-  \draw[ar] (h1) -- node[opl, above] {\texttt{conv2} $\to$ \texttt{pool} $\to$ \texttt{ReLU}} (h2);
-  \draw[ar] (h2) -- node[opl, above] {flatten}                                                (v);
-  \draw[ar] (v)  -- node[opl, above] {\texttt{fc1} $\to$ \texttt{ReLU}}                        (u);
-  \draw[ar] (u)  -- node[opl, above] {\texttt{fc2} $\to$ \texttt{log\_softmax}}                (y);
-
-  \node[draw, dashed, thin, rounded corners=2pt,
-        inner sep=6pt, fit=(x) (h1) (h2), label={[font=\scriptsize\itshape, text=black!60]below:convolutional stages}] {};
-  \node[draw, dashed, thin, rounded corners=2pt,
-        inner sep=6pt, fit=(v) (u) (y), label={[font=\scriptsize\itshape, text=black!60]below:fully-connected stages}] {};
+  %% Row 2 arrows
+  \foreach \a/\b in {fl/v, v/fc1, fc1/r3, r3/u,
+                     u/fc2, fc2/sm, sm/y}
+    \draw[ar] (\a) -- (\b);
 \end{tikzpicture}
 \caption{LeNet-MNIST forward-pass pipeline as implemented by this
 engine. Six named tensor stages --- input $\mathbf{x}$, two
@@ -731,26 +767,26 @@ RTX~4090's limits (1536 threads/SM, 64K 32-bit registers/SM,
 shared memory/SM, 16 blocks/SM).
 
 \begin{table}[tb]
-\caption{Per-kernel static resource usage and theoretical occupancy on
-RTX~4090 (compute capability 8.9). Dynamic shared-memory columns are
-reported for the LeNet shapes ($5{\times}5$ filter for conv2d\_tiled,
-$C{=}10$ for log\_softmax).}
+\caption{Per-kernel static resource usage on RTX~4090 (sm\_89),
+from \texttt{nvcc -Xptxas=-v}. Dynamic shared memory reported at
+LeNet shapes ($5{\times}5$ filter for conv2d\_tiled, $C{=}10$ for
+log\_softmax). No kernel spills.}
 \label{tab:kernel-resource}
 \begin{center}
 \footnotesize
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}l c r r r r@{}}
+\begin{tabular}{@{}l c r r r@{}}
 \toprule
-Kernel & Block & Regs & Static & Dyn. & Occ.\\
-       &       &      & smem   & smem & \\
+Kernel & Block & Regs & Static smem & Dyn.\ smem \\
 \midrule
-conv2d\_naive      & $16{\times}16$ & 39 & 0      & 0      & 100\% \\
-conv2d\_tiled      & $16{\times}16$ & 40 & 0      & 1600\,B & 100\% \\
-linear\_naive      & $256$          & 38 & 0      & 0      & 100\% \\
-linear\_tiled      & $16{\times}16$ & 37 & 2048\,B & 0      & 100\% \\
-max\_pool2d\_naive & $16{\times}16$ & 20 & 0      & 0      & 100\% \\
-relu\_naive        & $256$          & 8  & 0      & 0      & 100\% \\
-log\_softmax\_naive & $16$          & 15 & 0      & 64\,B  & 17\% \\
+conv2d\_naive            & $16{\times}16$ & 39 & 0        & 0        \\
+conv2d\_tiled            & $16{\times}16$ & 40 & 0        & 1600\,B  \\
+conv\_relu\_pool\_fused  & $4{\times}4$   & 39 & 0        & 576\,B   \\
+linear\_naive            & $256$          & 38 & 0        & 0        \\
+linear\_tiled            & $16{\times}16$ & 37 & 2048\,B  & 0        \\
+max\_pool2d\_naive       & $16{\times}16$ & 20 & 0        & 0        \\
+relu\_naive              & $256$          & 8  & 0        & 0        \\
+log\_softmax\_naive      & $16$           & 15 & 0        & 64\,B    \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -764,12 +800,20 @@ thread-count ceiling) fit on each SM. No kernel spills and no kernel
 allocates a stack frame. This is an important reading of the
 throughput numbers in Section~IV.B: the naive-vs-tiled delta at
 LeNet scale is not an occupancy story but a memory-access-pattern
-story, exactly as the per-kernel discussion there describes. The
-outlier is \texttt{log\_softmax\_naive} at 17\% occupancy, because it
-launches one block per row with \texttt{next\_pow2}$(C)=16$ threads
-for a 10-class output; the 16-block/SM ceiling is hit first. At
-LeNet's batch-1 output of a single 1\,$\times$\,10 row the kernel
-runs at $\sim$1\,\textmu s and is not worth specializing further.
+story, exactly as the per-kernel discussion there describes.
+
+The two outliers are the 16-thread-block kernels:
+\texttt{log\_softmax\_naive} (block=16, one block per output row)
+and \texttt{conv\_relu\_pool\_fused} (block=$4{\times}4=16$, one
+block per pool-output tile).
+With a 16-thread block, each block occupies exactly one warp.
+The block-count ceiling of 16 blocks/SM is reached before either
+the thread-count or register ceiling, yielding
+$16\text{ warps}/48\text{ max warps} = 33\%$ theoretical occupancy.
+Occupancy here is measured as active warps $\div$ maximum warps
+per SM, the standard CUDA definition. At LeNet's batch-1 shapes
+both kernels complete in $\sim$1--3\,\textmu s and occupancy is
+not the binding constraint on throughput.
 
 \subsection{Case Study: Matching Numerics Against cuDNN}
 Reaching the stretch tier surfaced a numerical issue that is easy to
@@ -909,8 +953,46 @@ fusion candidates that would shrink launch overhead and the
 host-to-device memory traffic that currently dominates the
 batch-1 end-to-end time.
 
+\section*{Acknowledgment}
+The author thanks Prof.\ Bruce Maxwell of the Khoury College of
+Computer Sciences, Northeastern University, for designing and
+teaching CS5330 Pattern Recognition and Computer Vision.
+Project~5 of that course provided the trained LeNet-MNIST model
+and exported weights that served as the ground-truth oracle for
+this work; without that foundation the correctness chain described
+in Section~\ref{sec:methods} would have had no anchor.
+CS5330 has been among the most formative learning experiences of
+the author's undergraduate education, and this project is a direct
+product of the curiosity it cultivated.
+
+Compute for all experiments was provided by RunPod
+(\url{https://runpod.io}) on an NVIDIA RTX~4090 GPU instance
+(CUDA~12.4, driver~550.127.05, cuDNN~9).
+
+The ground-truth log-softmax outputs used throughout the
+correctness harness were generated by the PyTorch framework
+\cite{pytorch2019} running the author's Project~5 weights in
+eval mode.
+
+Anthropic's Claude Code CLI was used as a development aid
+throughout this project. Specific uses include: code scaffolding
+and repository structure, kernel comment formatting, debugging
+assistance, rapid design prototyping, DevOps configuration for the
+RunPod compute environment, figure plotting with
+\texttt{matplotlib}, and Beamer slide templating.
+All architectural decisions, kernel designs, correctness
+methodology, benchmark measurements, and the analysis in this
+paper are the author's own; every line of CUDA was read,
+understood, and edited by the author before it was committed.
+
 \begin{thebibliography}{9}
 % Peer-reviewed, real venues -- verify final formatting before submit.
+\bibitem{krizhevsky2012}
+A.~Krizhevsky, I.~Sutskever, and G.~E.~Hinton,
+``ImageNet classification with deep convolutional neural networks,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)},
+vol.~25, 2012.
+
 \bibitem{lecun1998}
 Y.~LeCun, L.~Bottou, Y.~Bengio, and P.~Haffner,
 ``Gradient-based learning applied to document recognition,''
@@ -928,12 +1010,17 @@ V.~Volkov and J.~W.~Demmel,
 in \emph{Proc.\ Int.\ Conf.\ High Performance Computing, Networking,
 Storage and Analysis (SC)}, 2008, pp.~1--11.
 
-% Optional 4th, for the cuDNN baseline paragraph. Often cited from
-% arXiv but the IEEE-preferred form is the ACM/IEEE workshop if used.
 \bibitem{cudnn2014}
 S.~Chetlur \emph{et al.},
 ``cuDNN: Efficient primitives for deep learning,''
-2014, arXiv:1410.0759.
+in \emph{Workshop on Deep Learning, Advances in Neural Information
+Processing Systems (NIPS)}, 2014.
+
+\bibitem{pytorch2019}
+A.~Paszke \emph{et al.},
+``PyTorch: An imperative style, high-performance deep learning library,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)},
+vol.~32, 2019.
 \end{thebibliography}
 
 \end{document}

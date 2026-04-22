@@ -144,8 +144,8 @@ def plot_gemm_sweep(rows: list[dict[str, str]], out_path: Path) -> None:
     ax.axhline(1.0, color="gray", linestyle="--", linewidth=0.8)
     for n, s in zip(ns, speedups):
         ax.annotate(f"{s:.2f}x", (n, s),
-                    textcoords="offset points", xytext=(0, 8),
-                    ha="center", fontsize=8)
+                    textcoords="offset points", xytext=(0, -14),
+                    ha="center", va="top", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)

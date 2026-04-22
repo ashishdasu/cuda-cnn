@@ -24,6 +24,8 @@ build/
 *.blg
 *.fls
 *.fdb_latexmk
+*.nav
+*.snm
 
 # Proposal is a frozen submitted artifact — only the PDF is tracked.
 # The .tex is kept locally for reference but not versioned.
