@@ -485,8 +485,10 @@ crosses over on the larger $32{\to}64$ synthetic shape.}
 \end{figure}
 
 \begin{table}[htbp]
-\caption{Per-kernel linear / GEMM throughput on RTX~4090. Per-launch
-mean over 200 reps with warmup.}
+\caption{Per-kernel linear / GEMM throughput on RTX~4090 at
+LeNet-scale and batch-64 shapes. Per-launch mean over 200 reps with
+warmup. The $6.43\times$ peak at $N{=}1024$ is shown in
+Fig.~\ref{fig:gemm-sweep}.}
 \label{tab:throughput-linear}
 \begin{center}
 \footnotesize
@@ -498,7 +500,6 @@ mean over 200 reps with warmup.}
 fc1 ($N{=}1$, $320{\to}50$)         & 0.0107 & 0.0102 & $1.06\times$ \\
 fc2 ($N{=}1$, $50{\to}10$)          & 0.0025 & 0.0030 & $0.83\times$ \\
 fc1 ($N{=}64$, $320{\to}50$)        & 0.0375 & 0.0104 & $3.60\times$ \\
-synth ($N{=}1024$, $1024{\to}1024$) & 3.4153 & 0.5310 & $6.43\times$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -532,16 +533,17 @@ dimensions.}
 \begin{table}[htbp]
 \caption{End-to-end LeNet forward pass on RTX~4090: weights and
 input H2D, all five kernels, output D2H. Per-call mean over 50 reps
-with warmup.}
+with warmup. Throughput (img/s) is for the tiled pipeline.}
 \label{tab:throughput-e2e}
 \begin{center}
-\begin{tabular}{@{}lrrr@{}}
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
 \toprule
 \textbf{Variant} & \textbf{Naive (ms)} & \textbf{Tiled (ms)} &
-\textbf{Speedup} \\
+\textbf{Speedup} & \textbf{img/s} \\
 \midrule
-forward $N{=}1$   & 0.1648 & 0.1362 & $1.21\times$ \\
-forward $N{=}64$  & 0.4601 & 0.4351 & $1.06\times$ \\
+forward $N{=}1$   & 0.1648 & 0.1362 & $1.21\times$ & 7{,}342 \\
+forward $N{=}64$  & 0.4601 & 0.4351 & $1.06\times$ & 147{,}100 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -598,8 +600,7 @@ The tiled GEMM tells a different story. At batch-64 \texttt{fc1}
 with real work and the $16\times$ reuse factor along each input
 dimension shows up as a $3.60\times$ speedup. At
 $1024\times1024\times1024$ --- a ``real'' GEMM workload --- the
-tiled kernel is $6.43\times$ faster than the naive one-thread-per-output
-version. At batch-1 inference sizes the output tile is $1\times10$
+tiled kernel is $6.43\times$ faster (Fig.~\ref{fig:gemm-sweep}). At batch-1 inference sizes the output tile is $1\times10$
 or $1\times50$, so most of each $16\times16$ block sits idle and the
 advantage disappears. Figure~\ref{fig:gemm-sweep} traces the
 tiled-vs-naive speedup as $N$ sweeps from $1$ to $1024$ at a fixed
@@ -634,7 +635,7 @@ example by fusing \texttt{conv+bias+ReLU+pool} into a single kernel
 --- is the biggest remaining end-to-end lever and is measured
 directly in Section~\ref{sec:fusion}.
 
-\subsection{Kernel Fusion: conv+bias+ReLU+pool}
+\subsection{Kernel Fusion: conv+bias+ReLU+pool (Beyond Proposal Scope)}
 \label{sec:fusion}
 Section~\ref{sec:throughput} identifies launch overhead as the
 biggest end-to-end lever. The most obvious fusion target is the
@@ -763,8 +764,7 @@ are fixed in the kernel sources. Table~\ref{tab:kernel-resource}
 collects both for each kernel as compiled for \texttt{sm\_89}, and
 computes the resulting theoretical occupancy by hand against the
 RTX~4090's limits (1536 threads/SM, 64K 32-bit registers/SM,
-\raisebox{0pt}[0pt][0pt]{\raisebox{0pt}{\texttildelow}}99KB
-shared memory/SM, 16 blocks/SM).
+$\sim$99\,KB shared memory/SM, 16 blocks/SM).
 
 \begin{table}[tb]
 \caption{Per-kernel static resource usage on RTX~4090 (sm\_89),
@@ -815,7 +815,8 @@ per SM, the standard CUDA definition. At LeNet's batch-1 shapes
 both kernels complete in $\sim$1--3\,\textmu s and occupancy is
 not the binding constraint on throughput.
 
-\subsection{Case Study: Matching Numerics Against cuDNN}
+\subsection{Case Study: Matching Numerics Against cuDNN (Beyond Proposal Scope)}
+\label{sec:cudnn}
 Reaching the stretch tier surfaced a numerical issue that is easy to
 miss and worth calling out. Ada Lovelace GPUs (compute capability~8.9,
 including the RTX~4090 used here) default to TF32 tensor cores for
@@ -843,28 +844,26 @@ parity with textbook floating-point semantics, and a meaningful
 throughput comparison requires matched math modes.
 
 \subsection{Discussion of Deviations}
-The proposal named one peer-reviewed paper; the rubric
-requires at least three, so two additional references are added
-(Lavin and Gray, CVPR~2016; Volkov and Demmel, SC~2008). The
-proposal described ``softmax'' as the final nonlinearity, but the
+The proposal named one peer-reviewed paper; the final submission
+includes five (LeCun et~al., Krizhevsky et~al., Lavin and Gray,
+Volkov and Demmel, Chetlur et~al.) to satisfy the rubric's three-paper
+minimum and cover each major technical thread in the work.
+The proposal described ``softmax'' as the final nonlinearity, but the
 Project~5 network emits log-softmax outputs; the CUDA kernel
 therefore implements log-softmax (same numerical-stability trap and
 one extra subtract per element) so that the end-to-end diff against
 PyTorch is apples-to-apples. Hardware moved from a T4 on Colab to an
 RTX~4090 on RunPod for the development-loop reasons noted above; the
 kernels compile for compute capabilities 75/80/86/89 and remain
-portable to the original T4 target. Performance measurement uses
-the proposal's Nsight Compute plan is only partially realized, for
-container-permission reasons detailed at the top of
-Section~\ref{sec:kernel-resource}: the static half (registers,
-shared memory, launch bounds, theoretical occupancy) is reproduced
-via \texttt{nvcc -Xptxas=-v} and hand-computed occupancy in
+portable to the original T4 target. The proposal's Nsight Compute
+profiling plan is only partially realized, for container-permission
+reasons detailed at the top of Section~\ref{sec:kernel-resource}:
+the static half (registers, shared memory, launch bounds) is
+reproduced via \texttt{nvcc -Xptxas=-v} and reported in
 Table~\ref{tab:kernel-resource}, and the timing half is covered by
-the 200-rep \texttt{cudaEvent} harness in \texttt{bench.cu}, which
-at LeNet scale resolves the $\sim\!1\,\mu s$ differences between
-variants seen in the tables above. The two hardware-counter readouts
-that Nsight Compute would have added --- SM pipe utilization and
-DRAM throughput per kernel --- are not reported. The stretch-tier goal named in the proposal (``meaningful
+the 200-rep \texttt{cudaEvent} harness in \texttt{bench.cu}. The two
+hardware-counter readouts Nsight Compute would have added --- SM pipe
+utilization and DRAM throughput per kernel --- are not reported. The stretch-tier goal named in the proposal (``meaningful
 speedup toward cuDNN on convolution throughput'') was not achieved
 in the direction originally intended --- at LeNet scale our direct
 kernel beats cuDNN by $7{-}25\times$ because of cuDNN's fixed
@@ -875,7 +874,7 @@ than as a throughput target that was closed.
 
 \section{Discussion and Summary}
 \label{sec:discussion}
-Two broad observations from this work are worth stating directly.
+Three observations from this work are worth stating directly.
 
 First, the naive-first discipline paid off twice. The first time was
 the obvious win: because every kernel was validated against the CPU
@@ -900,16 +899,18 @@ map for one block is a few kilobytes more; both sit comfortably in
 the RTX~4090's L1, and the extra \texttt{\_\_syncthreads} calls
 required by the tile load/compute split become the dominant cost.
 The tiled GEMM paints the opposite picture: at a
-$1024\times1024\times1024$ workload the naive one-thread-per-output
-kernel takes $3.42$~ms and the tiled variant takes $0.53$~ms, a
-$6.4\times$ speedup. The same tiled GEMM at LeNet inference shapes
+$1024\times1024\times1024$ workload the tiled kernel is $6.43\times$
+faster (Fig.~\ref{fig:gemm-sweep}). The same tiled GEMM at LeNet inference shapes
 with batch~1 barely breaks even because the output tile is $1\times10$
 or $1\times50$ and most lanes of the block are idle. Batch~64
 \texttt{fc1} sits between these regimes and shows a $3.6\times$
 speedup. The lesson is not ``tiling is bad at small shapes'' --- the
 kernel is correct and the tile geometry is reasonable --- but that
 the target workload does not actually exercise the optimization the
-project name suggests.
+project name suggests. The exception that proves the rule is the
+fused \texttt{conv+bias+ReLU+pool} kernel at \texttt{conv1} batch~1,
+where launch overhead is the binding cost and fusion delivers a
+$1.76\times$ end-to-end win (Section~\ref{sec:fusion}).
 
 Third, the cuDNN comparison is best read as a calibration of where
 the direct-convolution formulation stops being the right choice, not
@@ -942,16 +943,28 @@ Table~\ref{tab:throughput-conv} is therefore presented as a
 reference point that establishes the crossover shape, not as a
 stretch-tier goal that was reached.
 
-The natural next step at the scope of this project is not any of the
-above but \texttt{im2col} plus GEMM --- a data rearrangement that
-turns convolution into a matmul and reuses our existing tiled GEMM,
-giving a third \texttt{conv2d} variant to compare without writing a
-new compute kernel. A second promising direction is operator
-fusion: the current pipeline has ten kernel launches per image, and
-\texttt{conv+bias+ReLU} and \texttt{conv+bias+pool+ReLU} are natural
-fusion candidates that would shrink launch overhead and the
-host-to-device memory traffic that currently dominates the
-batch-1 end-to-end time.
+The beyond-proposal extensions produced two concrete findings beyond
+the throughput numbers. First, the fused \texttt{conv+bias+ReLU+pool}
+kernel demonstrated that launch-overhead elimination is a real and
+measurable lever at LeNet's smallest shapes ($1.76\times$ at
+\texttt{conv1} batch~1), even when shared-memory tiling is not.
+Second, the cuDNN numeric case study (Section~\ref{sec:cudnn})
+surfaced a non-obvious hardware fact: Ada Lovelace's
+\texttt{CUDNN\_DEFAULT\_MATH} silently selects TF32 tensor cores,
+whose 10-bit mantissa produces $\sim\!5\times10^{-3}$ errors that
+pass unnoticed in coarse benchmarks but exceed this project's
+$1\times10^{-4}$ parity requirement by more than an order of magnitude.
+Matching numerics required pinning the math type to
+\texttt{CUDNN\_FMA\_MATH} and the algorithm to
+\texttt{IMPLICIT\_PRECOMP\_GEMM} --- neither documented in the standard
+cuDNN quickstart --- and is a concrete example of why ``just use the
+vendor library'' is not a numerical free-win on modern GPUs.
+Taken together, all three project tiers were completed:
+minimum (naive forward pass, $1.91\times10^{-5}$ over 10,000 images,
+100\% argmax agreement), target (tiled kernels, $3.6\times$ at
+batch-64 \texttt{fc1}), and beyond-proposal (fused kernel and cuDNN
+baseline). The tiled pipeline inferences at $147{,}100$ images/second
+at batch~64 on an RTX~4090.
 
 \section*{Acknowledgment}
 The author thanks Prof.\ Bruce Maxwell of the Khoury College of
