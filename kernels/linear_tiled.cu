@@ -25,6 +25,13 @@ inline void check(cudaError_t err, const char* what) {
     }
 }
 
+// Each block computes a BM x BN tile of the output matrix. Threads
+// cooperatively load a BM x BK panel of the input (As) and a BK x BN
+// panel of the weight^T (Bs) into shared memory, accumulate BK partial
+// products into a register `sum`, then advance to the next K-panel.
+// Loading weight[col, t*BK+ty] into Bs[ty][tx] stores the transpose
+// implicitly, so the inner loop reads As[ty][k] * Bs[k][tx] without
+// an extra index reversal.
 __global__ void linear_tiled_kernel(const float* __restrict__ input,
                                     const float* __restrict__ weight,
                                     const float* __restrict__ bias,
