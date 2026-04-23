@@ -874,7 +874,7 @@ than as a throughput target that was closed.
 
 \section{Discussion and Summary}
 \label{sec:discussion}
-Three observations from this work are worth stating directly.
+This project raised three observations worth spelling out.
 
 First, the naive-first discipline paid off twice. The first time was
 the obvious win: because every kernel was validated against the CPU
@@ -919,52 +919,44 @@ per-launch cost ($\sim\!70\,\mu s$ on this platform) exceeds the
 entire LeNet-scale convolution it is dispatching, so at our target
 shapes the hand-written direct kernel wins by $7{-}25\times$; but on
 the $32{\to}64$, $64\times64$ synthetic shape cuDNN already overtakes
-our kernel, and at production-scale convolutions the gap would
-continue to widen for reasons that are structural rather than
-tuning-effort questions. First, algorithm: cuDNN selects
-Winograd-family reformulations for $3\times3$ and $5\times5$ filters
-that cut the arithmetic count by a factor of two or more compared to
-the direct formulation~\cite{lavingray2016}; our kernels implement
-the textbook convolution and cannot recover that arithmetic.
-Second, hardware path: on Ada Lovelace the FP16/TF32 tensor cores
-deliver roughly an order of magnitude more throughput than the FP32
-CUDA cores our kernels are restricted to, and cuDNN can dispatch to
-them under permissive math modes (we intentionally disabled that to
-preserve numerical parity; see Section~IV.D). Third, shape
-specialization: cuDNN ships a library of hand-tuned kernels selected
-by heuristic per $(C_{\text{in}}, C_{\text{out}}, H, W, K)$ tuple,
-while this project has a single generic tile geometry intended to
-run on every shape. Fourth, memory layout: vectorized NHWC paths can
-exploit 128-bit loads that NCHW cannot, and cuDNN is free to
-transpose into whichever layout wins for a given shape; we stay in
-NCHW throughout to match PyTorch byte-for-byte. Each of these is a
-meaningful project on its own; the comparison in
-Table~\ref{tab:throughput-conv} is therefore presented as a
-reference point that establishes the crossover shape, not as a
-stretch-tier goal that was reached.
+our kernel, and at production-scale convolutions the gap would keep widening.
+The reasons are structural, not a matter of tuning effort.
+cuDNN selects Winograd-family reformulations for $5\times5$ filters
+that cut arithmetic by a factor of two or more~\cite{lavingray2016};
+a direct kernel simply cannot recover that. On Ada Lovelace, cuDNN
+can also dispatch to tensor cores delivering roughly an order of
+magnitude more throughput than the FP32 CUDA cores used here --- we
+intentionally disabled that path to preserve numerical parity
+(Section~\ref{sec:cudnn}). On top of that, cuDNN ships hand-tuned
+kernels selected per $(C_{\text{in}}, C_{\text{out}}, H, W, K)$
+shape tuple and can transpose between NCHW and NHWC to exploit
+128-bit loads; this project uses a single generic tile geometry and
+stays in NCHW throughout to match PyTorch byte-for-byte. Each of
+those gaps is a project in itself. The comparison in
+Table~\ref{tab:throughput-conv} is therefore a reference point that
+establishes the crossover shape, not a target that was closed.
 
-The beyond-proposal extensions produced two concrete findings beyond
-the throughput numbers. First, the fused \texttt{conv+bias+ReLU+pool}
-kernel demonstrated that launch-overhead elimination is a real and
-measurable lever at LeNet's smallest shapes ($1.76\times$ at
-\texttt{conv1} batch~1), even when shared-memory tiling is not.
-Second, the cuDNN numeric case study (Section~\ref{sec:cudnn})
-surfaced a non-obvious hardware fact: Ada Lovelace's
-\texttt{CUDNN\_DEFAULT\_MATH} silently selects TF32 tensor cores,
-whose 10-bit mantissa produces $\sim\!5\times10^{-3}$ errors that
-pass unnoticed in coarse benchmarks but exceed this project's
-$1\times10^{-4}$ parity requirement by more than an order of magnitude.
-Matching numerics required pinning the math type to
-\texttt{CUDNN\_FMA\_MATH} and the algorithm to
-\texttt{IMPLICIT\_PRECOMP\_GEMM} --- neither documented in the standard
-cuDNN quickstart --- and is a concrete example of why ``just use the
-vendor library'' is not a numerical free-win on modern GPUs.
-Taken together, all three project tiers were completed:
-minimum (naive forward pass, $1.91\times10^{-5}$ over 10,000 images,
-100\% argmax agreement), target (tiled kernels, $3.6\times$ at
-batch-64 \texttt{fc1}), and beyond-proposal (fused kernel and cuDNN
-baseline). The tiled pipeline inferences at $147{,}100$ images/second
-at batch~64 on an RTX~4090.
+Beyond the throughput numbers, the two beyond-proposal extensions
+each produced a finding that was not obvious going in. The fused
+\texttt{conv+bias+ReLU+pool} kernel showed that launch-overhead
+elimination is a real and measurable lever at LeNet's smallest shapes
+--- $1.76\times$ at \texttt{conv1} batch~1 --- even when
+shared-memory tiling is not. The cuDNN numeric case study
+(Section~\ref{sec:cudnn}) surfaced something less expected: Ada
+Lovelace's \texttt{CUDNN\_DEFAULT\_MATH} silently selects TF32 tensor
+cores, whose 10-bit mantissa produced $\sim\!5\times10^{-3}$ errors
+--- an order of magnitude above our $1\times10^{-4}$ tolerance --- with
+no warning. Getting cuDNN to produce comparable numerics required
+pinning both the math type (\texttt{CUDNN\_FMA\_MATH}) and the
+algorithm (\texttt{IMPLICIT\_PRECOMP\_GEMM}), neither of which is
+in the standard quickstart. It is a good reminder that ``just use the
+vendor library'' is not a numerical free-win on modern hardware.
+All three project tiers were completed. The naive forward pass matched
+PyTorch to $1.91\times10^{-5}$ over 10,000 images with 100\% argmax
+agreement; the tiled kernels delivered $3.6\times$ at batch-64
+\texttt{fc1}; the fused kernel and cuDNN baseline extended the scope
+beyond the original proposal. The tiled pipeline runs at
+$147{,}100$ images/second at batch~64 on an RTX~4090.
 
 \section*{Acknowledgment}
 The author thanks Prof.\ Bruce Maxwell of the Khoury College of
