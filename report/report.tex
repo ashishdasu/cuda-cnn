@@ -62,11 +62,11 @@ graph capture, and vendor libraries. This project builds the
 inference path of a small convolutional network from the CUDA kernels
 up, with no framework code and no vendor-provided neural-network
 primitives at runtime. The target network is a LeNet-style MNIST
-classifier from the author's prior project work (two conv layers, two
+classifier from my prior project work (two conv layers, two
 max pool layers, two fully connected layers, ReLU activations, and a
-log-softmax output). Correctness is specified as matching a PyTorch
-forward pass on the MNIST test inputs to within a documented
-absolute-error tolerance of $1\times10^{-4}$ per log-softmax element.
+log-softmax output). The correctness target is matching a PyTorch forward pass on the
+MNIST test inputs to within $1\times10^{-4}$ absolute error per
+log-softmax element.
 
 All model weights are exported once from the trained PyTorch
 checkpoint as header-less raw float32 binaries and copied to the GPU
@@ -93,15 +93,14 @@ from-scratch forward-pass implementation: the full weight set fits in
 a few tens of kilobytes and each kernel shape is small enough that
 hand-computed references can be built for unit testing.
 
-The practical case for GPU-accelerated CNN inference is established by
-Krizhevsky, Sutskever, and Hinton~\cite{krizhevsky2012}, whose AlexNet
-implementation demonstrated that hand-written CUDA convolution and
+Krizhevsky, Sutskever, and Hinton~\cite{krizhevsky2012} made the
+practical case for GPU-accelerated CNN inference: their AlexNet
+implementation showed that hand-written CUDA convolution and
 fully-connected kernels on a pair of GTX 580s could achieve top-5
-accuracy on ImageNet far beyond the then-state-of-the-art; this work
-directly motivates the per-kernel CUDA approach taken here.
+ImageNet accuracy far beyond the then-state-of-the-art, directly
+motivating the per-kernel CUDA approach taken here.
 
-On the GPU-kernel side, two lines of work inform the target-tier
-optimizations. Volkov and Demmel~\cite{volkov2008} characterized GPU
+Two papers on the GPU-kernel side inform the tiled kernels. Volkov and Demmel~\cite{volkov2008} characterized GPU
 memory bandwidth and arithmetic throughput and demonstrated how
 shared-memory tiling combined with register blocking approaches
 peak machine performance for dense linear algebra; this motivates the
@@ -111,9 +110,8 @@ Winograd minimal-filter algorithms, showing the gap that remains
 between direct-convolution implementations (the approach taken in
 this project) and algorithm-level reformulations; this is context for
 interpreting the gap between our direct kernels and a cuDNN baseline,
-which selects Winograd or implicit-GEMM algorithms per shape. Chetlur
-\emph{et~al.}~\cite{cudnn2014} describe cuDNN itself, which is used
-in the stretch tier as a throughput reference.
+which selects Winograd or implicit-GEMM algorithms per shape. Chetlur \emph{et~al.}~\cite{cudnn2014} describe cuDNN itself, used
+here as the throughput baseline.
 
 \section{Methods}
 \label{sec:methods}
@@ -203,8 +201,8 @@ copied host-to-device and only $\hat{\mathbf{y}}$ is copied back.}
 \end{figure*}
 
 \subsection{Target Network and Weight Export}
-The target network is the LeNet-style model from the author's
-CS5330 Project~5, summarized in
+The target network is the LeNet-style model from my CS5330
+Project~5, summarized in
 Fig.~\ref{fig:pipeline}: \texttt{conv1}~($1{\to}10$, $5{\times}5$,
 stride~1), max-pool~$2{\times}2$, ReLU; \texttt{conv2}~($10{\to}20$,
 $5{\times}5$, stride~1), \texttt{Dropout2d} (skipped at inference),
@@ -844,10 +842,10 @@ parity with textbook floating-point semantics, and a meaningful
 throughput comparison requires matched math modes.
 
 \subsection{Discussion of Deviations}
-The proposal named one peer-reviewed paper; the final submission
-includes five (LeCun et~al., Krizhevsky et~al., Lavin and Gray,
-Volkov and Demmel, Chetlur et~al.) to satisfy the rubric's three-paper
-minimum and cover each major technical thread in the work.
+The proposal cited one peer-reviewed paper; the final report includes
+five --- LeCun et~al., Krizhevsky et~al., Lavin and Gray, Volkov and
+Demmel, and Chetlur et~al. --- covering each major technical thread
+in the work.
 The proposal described ``softmax'' as the final nonlinearity, but the
 Project~5 network emits log-softmax outputs; the CUDA kernel
 therefore implements log-softmax (same numerical-stability trap and
@@ -959,25 +957,22 @@ beyond the original proposal. The tiled pipeline runs at
 $147{,}100$ images/second at batch~64 on an RTX~4090.
 
 \section*{Acknowledgment}
-The author thanks Prof.\ Bruce Maxwell of the Khoury College of
-Computer Sciences, Northeastern University, for designing and
-teaching CS5330 Pattern Recognition and Computer Vision.
+Thanks to Prof.\ Bruce Maxwell for designing and teaching
+CS5330 Pattern Recognition and Computer Vision.
 Project~5 of that course provided the trained LeNet-MNIST model
 and exported weights that served as the ground-truth oracle for
 this work; without that foundation the correctness chain described
 in Section~\ref{sec:methods} would have had no anchor.
-CS5330 has been among the most formative learning experiences of
-the author's undergraduate education, and this project is a direct
-product of the curiosity it cultivated.
+CS5330 has been one of the most engaging courses of my undergraduate
+education, and this project grew directly out of the curiosity it
+sparked.
 
 Compute for all experiments was provided by RunPod
 (\url{https://runpod.io}) on an NVIDIA RTX~4090 GPU instance
 (CUDA~12.4, driver~550.127.05, cuDNN~9).
 
-The ground-truth log-softmax outputs used throughout the
-correctness harness were generated by the PyTorch framework
-\cite{pytorch2019} running the author's Project~5 weights in
-eval mode.
+The ground-truth log-softmax outputs were generated by PyTorch
+\cite{pytorch2019} running my Project~5 weights in eval mode.
 
 Anthropic's Claude Code CLI was used as a development aid
 throughout this project. Specific uses include: code scaffolding
@@ -987,8 +982,8 @@ RunPod compute environment, figure plotting with
 \texttt{matplotlib}, and Beamer slide templating.
 All architectural decisions, kernel designs, correctness
 methodology, benchmark measurements, and the analysis in this
-paper are the author's own; every line of CUDA was read,
-understood, and edited by the author before it was committed.
+paper are my own; every line of CUDA was read, understood, and
+edited by me before it was committed.
 
 \begin{thebibliography}{9}
 % Peer-reviewed, real venues -- verify final formatting before submit.
