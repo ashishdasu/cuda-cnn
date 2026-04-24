@@ -96,8 +96,8 @@ void log_softmax_ref(const float* input,
         const float* row_in = input + n * C;
         float* row_out = output + n * C;
 
-        // Subtract row max for numerical stability (the trap called
-        // out in the proposal — naive exp overflows on large logits).
+        // Subtract row max for numerical stability — naive exp overflows
+        // on large logits without this.
         float m = row_in[0];
         for (int c = 1; c < C; ++c) {
             if (row_in[c] > m) m = row_in[c];

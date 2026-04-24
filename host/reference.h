@@ -61,8 +61,8 @@ void linear_ref(const float* input,
                 int N, int in_features, int out_features);
 
 // Numerically stable log-softmax over the last dimension. Subtracts
-// the per-row max before exp to avoid overflow (the trap called out
-// explicitly in the proposal).
+// the per-row max before exp to avoid overflow — naive exp on raw
+// logits overflows for large values.
 //   output[n, c] = input[n, c] - m - log(sum_c' exp(input[n, c'] - m))
 //   where m = max_c input[n, c]
 // Matches torch.nn.functional.log_softmax(x, dim=1) for 2D input.

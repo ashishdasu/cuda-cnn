@@ -94,16 +94,16 @@ __global__ void conv2d_bias_relu_pool_fused_kernel(
         // Accumulate this ic's contribution into all four conv outputs
         // of this thread's 2x2 window. The shmem offset for conv coord
         // (r, c) is at smem[(r - conv_row0) * tile_in_w + (c - conv_col0)].
-        // Because the tile is sized to exactly cover the 2x2 output
-        // block's receptive field, we can reuse the tile for both
-        // output rows and both output cols without a re-sync.
+        // The tile is sized to exactly cover the 2x2 output block's
+        // receptive field, so the same shmem load covers both output
+        // rows and both output cols without a re-sync.
         #pragma unroll
         for (int dy = 0; dy < 2; ++dy) {
             #pragma unroll
             for (int dx = 0; dx < 2; ++dx) {
                 const int o_row = conv_oh0 + dy;
                 const int o_col = conv_ow0 + dx;
-                // If our conv output is past the end, don't accumulate;
+                // Conv output past the edge — skip accumulation;
                 // the pool-bounds check below also gates the write.
                 if (o_row >= H_conv || o_col >= W_conv) continue;
                 const int base_r = o_row - conv_row0;

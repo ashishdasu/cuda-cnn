@@ -26,7 +26,7 @@ dasu.a@northeastern.edu}}
 \maketitle
 
 \begin{abstract}
-We build a forward-pass inference engine for a LeNet-style MNIST
+I build a forward-pass inference engine for a LeNet-style MNIST
 convolutional network in C++ and CUDA, with no deep-learning framework
 at runtime. Five kernels --- 2D convolution, max pooling, ReLU, linear,
 and log-softmax --- are written first as naive reference
@@ -43,7 +43,7 @@ overall accuracy ($97.93\%$) identical to PyTorch eval mode.
 Per-kernel benchmarks show that tiled GEMM delivers up to
 $6.43\times$ speedup over naive at a $1024\times1024\times1024$
 problem size but tiled convolution slightly regresses at LeNet scale,
-a result we attribute to the small working set fitting in L1 and
+a result I attribute to the small working set fitting in L1 and
 making shared-memory tiling's synchronization overhead dominant.
 A stretch-tier cuDNN baseline is included for reference and is itself
 slower than the naive direct kernel at LeNet shapes (descriptor and
@@ -109,7 +109,7 @@ Gray~\cite{lavingray2016} reduced convolution arithmetic with
 Winograd minimal-filter algorithms, showing the gap that remains
 between direct-convolution implementations (the approach taken in
 this project) and algorithm-level reformulations; this is context for
-interpreting the gap between our direct kernels and a cuDNN baseline,
+interpreting the gap between the direct kernels and a cuDNN baseline,
 which selects Winograd or implicit-GEMM algorithms per shape. Chetlur \emph{et~al.}~\cite{cudnn2014} describe cuDNN itself, used
 here as the throughput baseline.
 
@@ -218,17 +218,16 @@ inference, the host loader reads these files with a plain
 so Python and PyTorch are not runtime dependencies of the engine.
 
 \subsection{Correctness Harness}
-Correctness is enforced by a three-layer oracle chain that isolates
-failures to the smallest possible unit before integration. The first
-layer is a CPU reference implementation (\texttt{host/reference.cpp}),
+Correctness is built up in three layers, each designed to catch a
+different class of bug before it can reach the next. The first layer
+is a CPU reference implementation (\texttt{host/reference.cpp}),
 written in plain C++17 with no tuning and no parallelism, covering
-every operator in the network. This reference is itself validated
-against five PyTorch log-softmax fixtures captured from the trained
-model on MNIST test indices $0$--$4$; the maximum absolute
-error is on the order of $4\times10^{-6}$, which is the
-noise floor introduced by different float32 summation orders between
-PyTorch and our reference loop. The CPU reference is the single
-oracle against which every subsequent CUDA kernel is judged.
+every operator in the network. This reference is validated against
+five PyTorch log-softmax fixtures captured from the trained model on
+MNIST test indices $0$--$4$; the maximum absolute error is on the
+order of $4\times10^{-6}$, which is the noise floor from different
+float32 summation orders between PyTorch and my reference loop.
+Every CUDA kernel is then diffed against this reference.
 
 The second layer is a per-kernel CUDA diff: each naive kernel
 (\texttt{conv2d}, \texttt{max\_pool2d}, \texttt{ReLU},
@@ -292,7 +291,7 @@ $\text{in\_features}$ weight/input pairs plus a bias.
 trap. A straightforward implementation of
 $\log\!\left(e^{x_i}/\sum_j e^{x_j}\right)$ overflows for logits with
 magnitude larger than~$\sim88$ because $e^{x}$ exceeds the
-float32 range. We therefore subtract the per-row maximum before
+float32 range. I therefore subtract the per-row maximum before
 exponentiation:
 $\mathrm{logsoftmax}(x)_i = (x_i - m) - \log\sum_j e^{x_j - m}$ where
 $m=\max_j x_j$. Each thread block handles one row. \texttt{blockDim.x}
@@ -305,10 +304,9 @@ for the elementwise exponentials and final log.
 
 \subsection{Tiled Kernels (Target Tier)}
 Two operators are re-implemented as shared-memory tiled variants:
-convolution and the linear layer. Both variants live in separate
-translation units from the naive kernels and are validated against
-the same CPU reference at the same $1\times10^{-4}$ tolerance before
-being promoted into the end-to-end pipeline.
+convolution and the linear layer. Both are in separate files from the naive kernels and go through the
+same CPU-reference validation at the same tolerance before being
+wired into the end-to-end pipeline.
 
 The tiled convolution block produces one $\text{TILE\_H}\times
 \text{TILE\_W}$ output patch for one $(n,\text{oc})$ pair, with
@@ -579,7 +577,7 @@ story from the opposite direction. cuDNN is pinned to
 numerics match the FP32 direct-convolution reference (the default
 \texttt{CUDNN\_DEFAULT\_MATH} silently selects TF32 tensor cores on
 Ada, whose $10$-bit mantissa produces $\sim\!10^{-3}$ absolute error
---- larger than our project tolerance, and not comparable to the
+--- larger than the project tolerance, and not comparable to the
 naive/tiled kernels). Under matched numerics, cuDNN is
 $7{-}25\times$ \emph{slower} than the naive kernel at every LeNet
 shape; the per-launch descriptor build, workspace query, and
@@ -820,7 +818,7 @@ miss and worth calling out. Ada Lovelace GPUs (compute capability~8.9,
 including the RTX~4090 used here) default to TF32 tensor cores for
 FP32 convolutions when cuDNN is invoked with the default math mode
 \texttt{CUDNN\_DEFAULT\_MATH}. TF32 keeps an FP32-wide exponent but
-truncates the mantissa to 10~bits, and on our conv2 shape this
+truncates the mantissa to 10~bits, and on the conv2 shape this
 produced a maximum absolute error of $\sim\!5.3\times10^{-3}$ against
 the direct-convolution CPU reference --- an order of magnitude above
 the project's $1\times10^{-4}$ tolerance, and orders of magnitude
@@ -828,7 +826,7 @@ above the FP32 summation-reorder noise floor observed elsewhere in
 this report. Similarly, the default cuDNN algorithm selector for the
 conv2 shape picks \texttt{WINOGRAD\_NONFUSED}, whose algebraic
 transformation introduces a separate $\sim\!10^{-3}$ error term.
-Getting cuDNN to produce numerics comparable to our direct-convolution
+Getting cuDNN to produce numerics comparable to the direct-convolution
 kernels required two explicit pins: the math type set to
 \texttt{CUDNN\_FMA\_MATH} (via \texttt{cudnnSetConvolutionMathType})
 to force true FP32 fused-multiply-add, and the algorithm pinned to
@@ -863,10 +861,10 @@ the 200-rep \texttt{cudaEvent} harness in \texttt{bench.cu}. The two
 hardware-counter readouts Nsight Compute would have added --- SM pipe
 utilization and DRAM throughput per kernel --- are not reported. The stretch-tier goal named in the proposal (``meaningful
 speedup toward cuDNN on convolution throughput'') was not achieved
-in the direction originally intended --- at LeNet scale our direct
+in the direction originally intended --- at LeNet scale the direct
 kernel beats cuDNN by $7{-}25\times$ because of cuDNN's fixed
-per-launch overhead, not because of any algorithmic advantage on our
-side. The cuDNN comparison is therefore reported as a calibration
+per-launch overhead, not because of any algorithmic advantage on the
+implementation side. The cuDNN comparison is therefore reported as a calibration
 baseline and a case study in matching numerics (Section~IV.D) rather
 than as a throughput target that was closed.
 
@@ -914,16 +912,16 @@ Third, the cuDNN comparison is best read as a calibration of where
 the direct-convolution formulation stops being the right choice, not
 as a throughput race this project could have won. cuDNN's fixed
 per-launch cost ($\sim\!70\,\mu s$ on this platform) exceeds the
-entire LeNet-scale convolution it is dispatching, so at our target
+entire LeNet-scale convolution it is dispatching, so at the target
 shapes the hand-written direct kernel wins by $7{-}25\times$; but on
 the $32{\to}64$, $64\times64$ synthetic shape cuDNN already overtakes
-our kernel, and at production-scale convolutions the gap would keep widening.
+the direct kernel, and at production-scale convolutions the gap would keep widening.
 The reasons are structural, not a matter of tuning effort.
 cuDNN selects Winograd-family reformulations for $5\times5$ filters
 that cut arithmetic by a factor of two or more~\cite{lavingray2016};
 a direct kernel simply cannot recover that. On Ada Lovelace, cuDNN
 can also dispatch to tensor cores delivering roughly an order of
-magnitude more throughput than the FP32 CUDA cores used here --- we
+magnitude more throughput than the FP32 CUDA cores used here --- I
 intentionally disabled that path to preserve numerical parity
 (Section~\ref{sec:cudnn}). On top of that, cuDNN ships hand-tuned
 kernels selected per $(C_{\text{in}}, C_{\text{out}}, H, W, K)$
@@ -943,7 +941,7 @@ shared-memory tiling is not. The cuDNN numeric case study
 (Section~\ref{sec:cudnn}) surfaced something less expected: Ada
 Lovelace's \texttt{CUDNN\_DEFAULT\_MATH} silently selects TF32 tensor
 cores, whose 10-bit mantissa produced $\sim\!5\times10^{-3}$ errors
---- an order of magnitude above our $1\times10^{-4}$ tolerance --- with
+--- an order of magnitude above the $1\times10^{-4}$ tolerance --- with
 no warning. Getting cuDNN to produce comparable numerics required
 pinning both the math type (\texttt{CUDNN\_FMA\_MATH}) and the
 algorithm (\texttt{IMPLICIT\_PRECOMP\_GEMM}), neither of which is
@@ -963,7 +961,7 @@ Project~5 of that course provided the trained LeNet-MNIST model
 and exported weights that served as the ground-truth oracle for
 this work; without that foundation the correctness chain described
 in Section~\ref{sec:methods} would have had no anchor.
-CS5330 has been one of the most engaging courses of my undergraduate
+CS5330 has been one of the most rewarding and engaging courses of my graduate
 education, and this project grew directly out of the curiosity it
 sparked.
 
@@ -979,7 +977,8 @@ throughout this project. Specific uses include: code scaffolding
 and repository structure, kernel comment formatting, debugging
 assistance, rapid design prototyping, DevOps configuration for the
 RunPod compute environment, figure plotting with
-\texttt{matplotlib}, and Beamer slide templating.
+\texttt{matplotlib}, Beamer slide templating, and report prose
+editing for academic style and clarity.
 All architectural decisions, kernel designs, correctness
 methodology, benchmark measurements, and the analysis in this
 paper are my own; every line of CUDA was read, understood, and

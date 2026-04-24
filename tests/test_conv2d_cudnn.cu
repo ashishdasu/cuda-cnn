@@ -1,8 +1,8 @@
 // Correctness test for the cuDNN-backed conv baseline. Diffs vs the
 // CPU reference on LeNet's two conv shapes. cuDNN uses different
 // summation orders and potentially different algorithms per shape,
-// but the result must still agree with our reference under the
-// project's 1e-4 tolerance — that's the contract the bench numbers
+// but the result must still agree with the CPU reference at the
+// 1e-4 project tolerance — that's the contract the bench numbers
 // lean on later (any speedup headline is worthless if the reference
 // output is different).
 

@@ -25,9 +25,8 @@ inline void check(cudaError_t err, const char* what) {
     }
 }
 
-// One thread per output element. blockIdx.z encodes (n, oc) so we
-// only pay a divide/modulo per block (it's a compile-time friendly
-// linearization), not per thread.
+// One thread per output element. blockIdx.z encodes (n, oc) so the
+// divide/modulo is paid once per block, not per thread.
 __global__ void conv2d_naive_kernel(const float* __restrict__ input,
                                     const float* __restrict__ weight,
                                     const float* __restrict__ bias,

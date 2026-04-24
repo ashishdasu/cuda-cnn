@@ -58,7 +58,7 @@ void launch(cudnnHandle_t handle,
                                            1, C_out, 1, 1), "setTensor b");
     check_cudnn(cudnnSetFilter4dDescriptor(w_desc, CUDNN_DATA_FLOAT, CUDNN_TENSOR_NCHW,
                                            C_out, C_in, Kh, Kw), "setFilter");
-    // Stride 1, no padding, dilation 1 — matches our naive/tiled kernels.
+    // Stride 1, no padding, dilation 1 — matches the naive/tiled kernels.
     check_cudnn(cudnnSetConvolution2dDescriptor(conv_desc,
                                                 0, 0,   // pad
                                                 1, 1,   // stride
@@ -67,17 +67,16 @@ void launch(cudnnHandle_t handle,
                                                 CUDNN_DATA_FLOAT), "setConv2d");
     // Force real FP32 FMA, not TF32. On Ampere/Ada GPUs cuDNN defaults
     // to TF32 for FP32 convolutions, which uses a 10-bit mantissa and
-    // introduces ~1e-3 absolute error — above our project tolerance and
-    // not what the CPU reference or our naive/tiled kernels compute.
+    // introduces ~1e-3 absolute error — above the 1e-4 project tolerance
+    // and inconsistent with the CPU reference and the naive/tiled kernels.
     check_cudnn(cudnnSetConvolutionMathType(conv_desc, CUDNN_FMA_MATH),
                 "setConvMathType(FMA)");
 
     // Pin to IMPLICIT_PRECOMP_GEMM: direct convolution reformulated as an
-    // implicit GEMM, same numerics as our naive/tiled direct kernels. If
-    // we let cuDNN auto-select, it picks WINOGRAD_NONFUSED for the larger
-    // conv2 shape, which has ~1e-3 absolute error relative to direct
-    // convolution and exceeds this project's 1e-4 tolerance. Apples-to-apples
-    // speed comparison requires matching numerics.
+    // implicit GEMM, same numerics as the naive/tiled direct kernels. Without
+    // this, cuDNN auto-selects WINOGRAD_NONFUSED for the larger conv2 shape,
+    // which has ~1e-3 absolute error relative to direct convolution and
+    // exceeds the 1e-4 tolerance. Matching algorithm = matching numerics.
     cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
 
     std::size_t ws_bytes = 0;

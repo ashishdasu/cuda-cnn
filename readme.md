@@ -7,6 +7,8 @@ no cuDNN, no deep learning framework at runtime.
 
 CS5330 Pattern Recognition & Computer Vision, final project — Ashish Dasu.
 
+## PRESENTATION VIDEO LINK: https://drive.google.com/file/d/1DaHe_1kZR2vl7LqqHog4ZXsbRiAndUjT/view?usp=sharing
+
 ## Project description
 
 I use PyTorch throughout the course without a concrete sense of what
@@ -23,9 +25,11 @@ PyTorch's eval-mode accuracy on the same weights.
 
 ## Build & run
 
-Linux with the NVIDIA CUDA Toolkit. Does **not** build on macOS (no `nvcc`).
-cuDNN is auto-detected; the stretch-tier targets (cuDNN conv wrapper and
-the cuDNN row in `bench`) are only built when it is available.
+Requires an NVIDIA GPU with the CUDA Toolkit (≥ 12.0) installed.
+Tested on Linux (RunPod, CUDA 12.4) and should work on any Linux host with
+`nvcc` in `PATH`. Does **not** build on macOS (no `nvcc`); Windows is untested.
+cuDNN is auto-detected; the cuDNN conv wrapper and cuDNN bench row are only
+built when it is present.
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -84,16 +88,17 @@ fixtures/     MNIST inputs + PyTorch log-softmax oracles for correctness tests
 report/       Final IEEE-format report (report.pdf is the submitted artifact)
 ```
 
-## Report and demo
+## Report
 
 The final report is at `report/report.pdf` (IEEE 2-column conference format,
-built from `report/report.tex`).
-
-Demo video: TODO — URL will appear here once uploaded.
+built from `report/report.tex`). 
 
 ## Author
 
 Ashish Dasu (`dasu.a@northeastern.edu`) — solo project.
+
+Thanks to Prof. Bruce Maxwell for designing and teaching CS5330 Pattern
+Recognition and Computer Vision — the course that prompted this project.
 
 ## Reflection
 
@@ -110,10 +115,11 @@ itself many times over.
 
 ## AI assistance disclosure
 
-Anthropic's Claude (Claude Code CLI) was used
-as a typing and formatting aid during this project — LaTeX boilerplate,
-matplotlib styling, and minor prose/comment cleanup. All architectural
-decisions, kernel designs, correctness methodology, benchmark
-measurements, and written analysis are my own; every line of CUDA was
-read and edited by me before it ran, and every commit in the git
-history is authored and reviewed by me.
+Anthropic's Claude Code CLI was used as a development aid throughout this
+project. Specific uses: code scaffolding and repository structure, kernel
+comment formatting, debugging assistance, DevOps configuration for the RunPod
+environment, figure plotting with matplotlib, Beamer slide templating, and
+report prose editing for academic style and clarity. All architectural
+decisions, kernel designs, correctness methodology, benchmark measurements, and
+written analysis are my own; every line of CUDA was read, understood, and
+edited by me before it was committed.

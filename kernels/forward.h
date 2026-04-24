@@ -4,10 +4,10 @@
 // match torch.nn.functional.log_softmax outputs to within the 1e-4
 // project tolerance.
 //
-// This is the realization of the proposal's runtime contract: weights
-// are cudaMemcpy'd once to the GPU, activations stay on-device between
-// layers, and the only host traffic during inference is the input
-// H2D + the log-probability D2H. No per-layer round-trips.
+// Runtime contract: weights are cudaMemcpy'd once to the GPU,
+// activations stay on-device between layers, and the only host traffic
+// per inference call is the input H2D and the log-probability D2H.
+// No per-layer round-trips.
 //
 // Layer sequence and intermediate device-buffer shapes for input
 // [N, 1, 28, 28]:
@@ -46,8 +46,8 @@ void forward_naive_gpu(const Weights& w,
 // Same end-to-end contract as forward_naive_gpu, but substitutes the
 // tiled shared-memory conv2d and linear kernels for their naive
 // counterparts. Pool, ReLU, and log_softmax remain the naive kernels
-// (those aren't tile-bound at LeNet scale, and the proposal's target
-// tier scopes the optimization to conv + GEMM).
+// (pool, ReLU, and log_softmax aren't tile-bound at LeNet scale;
+// the optimization scope is conv + GEMM).
 void forward_tiled_gpu(const Weights& w,
                        const float* h_input,
                        float* h_output,

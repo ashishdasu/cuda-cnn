@@ -5,8 +5,8 @@
 // the output matrix, iterating over BK-wide panels of the shared
 // reduction dimension. Every element of input and weight is loaded
 // from global memory once per K-panel and reused BM (or BN) times
-// from shared memory — the input-side traffic reduction that the
-// proposal called out for the target tier.
+// from shared memory, reducing global-memory traffic by BM on the
+// input side and BN on the weight side.
 //
 // Tensor layout (row-major, matches PyTorch and linear_naive):
 //   input:  [N, in_features]

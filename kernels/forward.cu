@@ -5,14 +5,14 @@
 //   the lifetime of this call. A longer-lived inference driver would
 //   hoist these above the per-image call; for the minimum-tier test
 //   that's unnecessary and would complicate teardown.
-// - Two activation buffers (ping-pong) would suffice if we cared about
+// - Two activation buffers (ping-pong) would suffice for minimizing
 //   peak memory, but at LeNet scale (largest intermediate is
-//   N * 10 * 24 * 24 * 4 B = 23 KB per batch item) allocating a
-//   distinct buffer per layer is trivially cheap and keeps the code
-//   linear and easy to audit against forward_ref.
+//   N * 10 * 24 * 24 * 4 B = 23 KB per batch item) a distinct buffer
+//   per layer is trivially cheap and keeps the code linear and easy
+//   to audit against forward_ref.
 // - No intermediate cudaDeviceSynchronize between layers — launches
-//   queue on the default stream and execute in order. We synchronize
-//   once at the end, right before the D2H copy.
+//   queue on the default stream and execute in order. One sync at the
+//   end, right before the D2H copy.
 
 #include "kernels/forward.h"
 
@@ -141,9 +141,9 @@ void forward_tiled_gpu(const Weights& w,
     if (N <= 0) return;
 
     // Buffer setup is identical to forward_naive_gpu; only the conv
-    // and linear kernel calls change. We keep this function separate
-    // (rather than threading a boolean through the naive version) so
-    // each variant reads top-to-bottom as a straight pipeline.
+    // and linear kernel calls differ. Kept as a separate function
+    // (rather than a boolean parameter) so each variant reads
+    // top-to-bottom as a straight pipeline.
     DevBuf d_conv1_w(w.conv1_weight.size());
     DevBuf d_conv1_b(w.conv1_bias.size());
     DevBuf d_conv2_w(w.conv2_weight.size());

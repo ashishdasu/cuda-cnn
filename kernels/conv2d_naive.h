@@ -22,11 +22,10 @@
 // correct version; the tiled variant is a separate kernel.
 //
 // The launcher takes host pointers and manages its own device
-// allocations + H2D/D2H copies. That means it's slow for end-to-end
-// use (per-layer memcpy overhead), but it makes correctness tests
-// self-contained and lets us swap the kernel in-place for the host
-// reference in any test. A device-pointer variant for fused pipelines
-// comes later.
+// allocations + H2D/D2H copies. That makes correctness tests
+// self-contained — the kernel can be dropped in for the CPU reference
+// in any test without touching surrounding code. The device-pointer
+// variant below skips the round-trip for use in the end-to-end pipeline.
 
 #pragma once
 

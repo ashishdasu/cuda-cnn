@@ -1,7 +1,6 @@
-// cuDNN-backed 2D convolution. Exists only to provide the stretch-tier
-// baseline — the proposal's goal is to "close the gap to cuDNN on
-// convolution throughput," so we need cuDNN numbers on the same shapes
-// and the same RTX 4090 to make the comparison honest.
+// cuDNN-backed 2D convolution, used as the throughput baseline for the
+// hand-written kernels. Runs the same shapes on the same hardware so
+// the comparison is apples-to-apples.
 //
 // Same mathematical contract as conv2d_naive / conv2d_tiled (stride 1,
 // no padding, PyTorch-native tensor layout). This is thin plumbing:
@@ -28,8 +27,8 @@ void conv2d_cudnn(const float* input,
                   int C_out, int Kh, int Kw);
 
 // Device-pointer variant. Internally manages the cuDNN handle lifetime
-// per call; for a real throughput benchmark that would be hoisted out,
-// but we bench cold-handle cost as part of the honest comparison.
+// per call, so this includes handle-creation overhead in the timing.
+// Use conv2d_cudnn_device_with_handle to separate that cost.
 void conv2d_cudnn_device(const float* d_input,
                          const float* d_weight,
                          const float* d_bias,

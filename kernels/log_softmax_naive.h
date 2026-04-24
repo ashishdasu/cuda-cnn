@@ -8,20 +8,20 @@
 //   input:  [N, C]
 //   output: [N, C]
 //
-// The per-row max subtraction is the stability trap the proposal
-// called out: naive exp on raw logits overflows. Subtracting the max
-// bounds the exponent at 0.
+// Per-row max subtraction is required for numerical stability: naive
+// exp on raw logits overflows. Subtracting the max bounds the
+// exponent at 0.
 //
 // Thread/block layout:
 //   One block per row; blockDim.x = min(next pow2 >= C, 1024).
-//   Each thread handles one column (C is expected to be small for
-//   this project -- LeNet's final layer is C = 10, so we even stay
-//   within a single warp). Two shared-memory reductions per row:
+//   Each thread handles one column (C is small here -- LeNet's final
+//   layer is C = 10, fits in a single warp). Two shared-memory
+//   reductions per row:
 //     pass 1: tree-reduce to find row max
 //     pass 2: tree-reduce sum of exp(x - max)
 //     pass 3: write output[n, c] = x - max - log(sum)
-// For C <= 1024 this is correct; if we ever exceed that we switch to
-// a grid-stride per-thread pattern.
+// Correct for C <= 1024; beyond that the kernel throws rather than
+// silently producing wrong results (a grid-stride reduction would be needed).
 
 #pragma once
 

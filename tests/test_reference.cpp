@@ -2,7 +2,7 @@
 // outputs stored in fixtures/output_{i}.bin. Loads weights + all five
 // input/output fixture pairs, runs forward_ref on each input, and
 // asserts the maximum absolute per-element error is below the
-// proposal's 1e-4 tolerance.
+// 1e-4 project tolerance.
 //
 // Exit code 0 on success, 1 on any fixture failing. Intended to be run
 // via ctest from the build directory (CMakeLists sets

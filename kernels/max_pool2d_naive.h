@@ -12,9 +12,8 @@
 //   gridDim.y = ceil(H_out / TILE_H)
 //   gridDim.z = N * C                  (blockIdx.z indexes (n, c))
 // One thread per output element reads the 2x2 input window and writes
-// the max — the exact pattern the proposal calls out. No shared memory;
-// every thread reads 4 distinct input values from global, no re-use to
-// exploit, so a naive version is already close to optimal here.
+// the max. No shared memory; every thread reads 4 distinct input values
+// from global, no re-use to exploit, so there's nothing to tile.
 
 #pragma once
 

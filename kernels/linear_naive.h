@@ -14,8 +14,8 @@
 //   gridDim  = ceil(N * out_features / 256)
 // Output elements are linearized as (n * out_features + o). One thread
 // per output element, straight in_features-long dot product, no shared
-// memory. This is the naive GEMM baseline that the tiled variant
-// (target tier) will be diffed and speedup-compared against.
+// memory. Correctness baseline; the tiled variant (linear_tiled) is
+// diffed against this and measured for speedup.
 
 #pragma once
 
