@@ -25,33 +25,17 @@ PyTorch's eval-mode accuracy on the same weights.
 
 ## Build & run
 
-Requires an NVIDIA GPU with the CUDA Toolkit (≥ 12.0) installed.
-Tested on Linux (RunPod, CUDA 12.4) and should work on any Linux host with
-`nvcc` in `PATH`. Does **not** build on macOS (no `nvcc`); Windows is untested.
-cuDNN is auto-detected; the cuDNN conv wrapper and cuDNN bench row are only
-built when it is present.
+Requires an NVIDIA GPU with CUDA Toolkit ≥ 12.0. All development and
+benchmarking was done on a RunPod RTX 4090 instance (CUDA 12.4, driver
+550.127.05). cuDNN is optional — the cuDNN conv wrapper is only built when
+it is detected by CMake.
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build       # per-kernel + end-to-end correctness tests
 build/bench                  # throughput numbers (add --csv to pipe to plot_bench.py)
-```
-
-Single-image inference CLI (wraps the tiled forward pass):
-
-```bash
-build/predict --fixture 0                         # predict fixtures/input_0.bin
-build/predict --bulk 42 --variant naive           # row 42 of the 10k MNIST test set
-build/predict --input my_digit.bin --reps 200     # arbitrary raw 1x28x28 float32
-build/predict --help
-```
-
-The 10,000-image parity harness needs bulk fixtures (~32 MB, gitignored):
-
-```bash
-python3 tools/dump_fixtures.py --bulk --count 10000
-build/test_forward_mnist10k
+build/predict --fixture 0    # single-image inference
 ```
 
 ## Reproducing the report numbers and figures
@@ -97,8 +81,8 @@ built from `report/report.tex`).
 
 Ashish Dasu (`dasu.a@northeastern.edu`) — solo project.
 
-Thanks to Prof. Bruce Maxwell for designing and teaching CS5330 Pattern
-Recognition and Computer Vision — the course that prompted this project.
+Huge thanks to Prof. Bruce Maxwell for designing and teaching CS5330 Pattern
+Recognition and Computer Vision — the course that prompted this project and provided all the educational background.
 
 ## Reflection
 
@@ -116,10 +100,11 @@ itself many times over.
 ## AI assistance disclosure
 
 Anthropic's Claude Code CLI was used as a development aid throughout this
-project. Specific uses: code scaffolding and repository structure, kernel
-comment formatting, debugging assistance, DevOps configuration for the RunPod
-environment, figure plotting with matplotlib, Beamer slide templating, and
-report prose editing for academic style and clarity. All architectural
-decisions, kernel designs, correctness methodology, benchmark measurements, and
-written analysis are my own; every line of CUDA was read, understood, and
-edited by me before it was committed.
+project. Specific uses include: code scaffolding and repository structure,
+kernel comment formatting, debugging assistance, rapid design prototyping,
+DevOps configuration for the RunPod compute environment, figure plotting with
+matplotlib, Beamer slide templating, and report prose editing for academic
+style and clarity. All architectural decisions, kernel designs, correctness
+methodology, benchmark measurements, and the analysis in the report are my
+own; every line of CUDA was read, understood, and edited by me before it was
+committed.
