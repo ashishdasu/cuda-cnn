@@ -12,8 +12,8 @@ directly via cudaMemcpy without needing the constants.
 Outputs are the raw PyTorch forward-pass results in eval mode (Dropout2d
 disabled, no gradient tracking). They are the numerical oracle that
 every CPU reference function and every CUDA kernel is validated
-against — the 1e-4 absolute tolerance promised in the proposal is
-measured against these files.
+against — the 1e-4 absolute tolerance target is measured against
+these files.
 
 A human-readable `fixtures/manifest.txt` is written alongside with
 columns: index | label | predicted_class | max_logprob. Handy for

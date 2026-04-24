@@ -1,6 +1,5 @@
-// See conv2d_cudnn.h for the contract. This is the stretch-tier
-// baseline; cuDNN owns all of the algorithm selection, workspace
-// sizing, and actual kernel dispatch.
+// See conv2d_cudnn.h for the contract. cuDNN owns all of the algorithm
+// selection, workspace sizing, and actual kernel dispatch.
 
 #include "kernels/conv2d_cudnn.h"
 

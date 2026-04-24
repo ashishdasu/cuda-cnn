@@ -1,9 +1,8 @@
 // End-to-end correctness test for the CUDA forward pass. Mirrors
-// test_reference.cpp, but swaps cnn::forward_ref for
-// cnn::cuda::forward_naive_gpu. This is the minimum-tier milestone:
-// passing here means the composed naive-kernel pipeline reproduces
-// PyTorch's log-softmax outputs on every MNIST fixture within the
-// project's 1e-4 tolerance.
+// test_reference.cpp but swaps cnn::forward_ref for
+// cnn::cuda::forward_naive_gpu. Passing here means the composed naive-kernel
+// pipeline reproduces PyTorch's log-softmax outputs on every MNIST fixture
+// within the 1e-4 tolerance that defines numerical parity for this project.
 
 #include "host/weights.h"
 #include "kernels/forward.h"

@@ -1,6 +1,6 @@
 // Tiled shared-memory CUDA implementation of 2D convolution. Same
 // semantics as conv2d_naive (stride 1, no padding, PyTorch layout) —
-// this is the target-tier optimization: each block cooperatively
+// Each block cooperatively
 // stages an input patch into shared memory once per input channel,
 // then every thread in the block reuses those loads to produce one
 // output element. Global-memory traffic on the input drops by

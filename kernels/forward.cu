@@ -3,8 +3,8 @@
 // Implementation notes:
 // - Weights are copied H2D once, into dedicated device buffers held for
 //   the lifetime of this call. A longer-lived inference driver would
-//   hoist these above the per-image call; for the minimum-tier test
-//   that's unnecessary and would complicate teardown.
+//   hoist these above the per-image call; for the per-fixture test
+//   harness that's unnecessary and would complicate teardown.
 // - Two activation buffers (ping-pong) would suffice for minimizing
 //   peak memory, but at LeNet scale (largest intermediate is
 //   N * 10 * 24 * 24 * 4 B = 23 KB per batch item) a distinct buffer
